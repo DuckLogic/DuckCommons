@@ -1,0 +1,15 @@
+[package]
+name = "ducklogic-derive"
+version = "0.1.0"
+workspace = ".."
+description = "Automaticatically derives things in DuckLogic"
+publish = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = "^0.11.11"
+quote = "^0.3.15"
+regex = "^0.2"
+lazy_static = "^0.2.8"

@@ -1,7 +1,7 @@
 pub mod counter;
 
 macro_rules! exact_cast_primitives {
-    { $($target:ty [ $($casted:ty)*, ] );* } => {
+    { $($target:ty [ $($casted:ty),* ] ; )* } => {
         $(
             impl ExactCast<$target> for $target {
                 #[inline]

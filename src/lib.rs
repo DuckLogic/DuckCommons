@@ -1,3 +1,5 @@
+extern crate petgraph;
+
 pub mod collect;
 pub mod math;
 pub mod arena_set;
