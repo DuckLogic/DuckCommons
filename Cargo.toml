@@ -1,0 +1,8 @@
+[package]
+name = "duckcommons"
+version "0.1.0"
+authors = ["Techcable <Techcable@techcable.net>"]
+description = "Various utilities needed for DuckLogic"
+license = "All Rights Reserved"
+publish = false
+
