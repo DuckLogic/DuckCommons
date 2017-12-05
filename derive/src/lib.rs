@@ -169,6 +169,7 @@ pub fn auto_error(input: TokenStream) -> TokenStream {
     debug_derive(start.elapsed(), "AutoError", &ast.ident, &tokens);
     tokens.parse().unwrap()
 }
+
 fn impl_auto_error(ast: &DeriveInput) -> quote::Tokens {
     let error_name = &ast.ident;
     let defaults = ErrorConfiguration::determine(&ast.attrs)
@@ -227,7 +228,7 @@ fn impl_auto_error(ast: &DeriveInput) -> quote::Tokens {
                 }
             }
             quote! {
-                impl #impl_generics ::utils::AutoError for #error_name #ty_generics #where_clause {}
+                impl #impl_generics AutoError for #error_name #ty_generics #where_clause {}
                 impl #impl_generics ::std::error::Error for #error_name #ty_generics #where_clause {
                     #[inline]
                     #[allow(unused)]
@@ -259,7 +260,7 @@ fn impl_auto_error(ast: &DeriveInput) -> quote::Tokens {
         Body::Struct(VariantData::Tuple(ref fields)) if fields.len() == 1 => {
             // Implement newtype structs by delegating to the underlying error
             quote! {
-                impl #impl_generics ::utils::AutoError for #error_name #ty_generics #where_clause {}
+                impl #impl_generics AutoError for #error_name #ty_generics #where_clause {}
                 impl #impl_generics ::std::error::Error for #error_name #ty_generics #where_clause {
                     #[inline]
                     fn description(&self) -> &str {
@@ -293,7 +294,7 @@ fn impl_auto_error(ast: &DeriveInput) -> quote::Tokens {
                 .map(|field| &field.ty);
             let give_cause = if cause.is_some() { quote! { Some(&self.cause) } } else { quote!(None) };
             quote! {
-                impl #impl_generics ::utils::AutoError for #error_name #ty_generics #where_clause {}
+                impl #impl_generics AutoError for #error_name #ty_generics #where_clause {}
                 impl #impl_generics ::std::error::Error for #error_name #ty_generics #where_clause {
                     #[inline]
                     fn description(&self) -> &str {

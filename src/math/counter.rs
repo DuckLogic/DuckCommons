@@ -1,4 +1,8 @@
-pub trait IdCounted: ::num_traits::PrimInt + ::num_traits::Unsigned  + Display {
+use std::fmt::{Display};
+use std::cell::Cell;
+use num_traits::{PrimInt, Unsigned};
+
+pub trait IdCounted: PrimInt + Unsigned  + Display {
     #[inline]
     fn into_u64(self) -> u64 {
         self.to_u64().unwrap()

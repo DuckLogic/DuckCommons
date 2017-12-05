@@ -1,3 +1,11 @@
+use std::{mem, slice, ptr, cmp, iter};
+use std::fmt::{self, Formatter, Debug};
+use std::ops::{Index, Range, RangeFull, RangeFrom, RangeTo, IndexMut};
+
+use ptr::PointerExt;
+use alloc::raw_vec::RawVec;
+use serde::ser::{Serialize, Serializer, SerializeStruct};
+use serde::de::{Deserialize, Deserializer};
 
 /// A simple 'two sided' vector, that can grow both forwards and backwards.
 ///
@@ -238,10 +246,11 @@ impl<T> TwoSidedVec<T> {
     /// The **length isn't where the vector ends**,
     /// since it could have elements in the back with negative indexes.
     /// Use `vec.start()` and `vec.end()` if you want to know the start and end indexes.
-    /// The total length is exactly equivelant to `(-queue.start() + queue.end())`.
+    /// The total length is exactly equivelant to `vec.len_back() + vec.len_front()`
     #[inline]
     pub fn len(&self) -> usize {
-        self.len_back() + self.len_front()
+        debug_assert!(self.start_index <= self.end_index);
+        self.end_index.wrapping_sub(self.start_index) as usize
     }
     /// Return the length of the back of the vector.
     #[inline]
@@ -281,23 +290,23 @@ impl<T> TwoSidedVec<T> {
     /// Iterate over the entire vector, including both the back and front.
     #[inline]
     pub fn iter_entire(&self) -> slice::Iter<T> {
-        self.slice_entire().iter()
+        self[..].iter()
     }
     #[inline]
-    pub fn get(&self, index: isize) -> Option<&T> {
-        if index >= self.start_index && index < self.end_index {
-            Some(unsafe { &*self.middle.offset(index)})
-        } else {
-            None
-        }
+    pub fn get<I: TwoSidedIndex<T>>(&self, index: I) -> Option<&I::Output> {
+        index.get(self)
     }
     #[inline]
-    pub fn get_mut(&mut self, index: isize) -> Option<&mut T> {
-        if index >= self.start_index && index < self.end_index {
-            Some(unsafe { &mut *self.middle.offset(index) })
-        } else {
-            None
-        }
+    pub fn get_mut<I: TwoSidedIndex<T>>(&mut self, index: I) -> Option<&mut I::Output> {
+        index.get_mut(self)
+    }
+    #[inline]
+    pub unsafe fn get_unchecked<I: TwoSidedIndex<T>>(&self, index: I) -> &I::Output {
+        index.get_unchecked(self)
+    }
+    #[inline]
+    pub unsafe fn get_unchecked_mut<I: TwoSidedIndex<T>>(&mut self, index: I) -> &mut I::Output {
+        index.get_unchecked_mut(self)
     }
     /// Give a raw pointer to the start of the elements
     #[inline]
@@ -364,7 +373,7 @@ impl<T> TwoSidedVec<T> {
     /// it gives proper negative indices for elements that are in the back.
     #[inline]
     pub fn enumerate(&self) -> SignedEnumerate<slice::Iter<T>> {
-        SignedEnumerate::new(self.start(), self.slice_entire().iter())
+        SignedEnumerate::new(self.start(), self[..].iter())
     }
     /// Mutably enumerate the indices and values of each element in the front and back.
     ///
@@ -372,28 +381,7 @@ impl<T> TwoSidedVec<T> {
     /// it gives proper negative indices for elements that are in the back.
     #[inline]
     pub fn enumerate_mut(&mut self) -> SignedEnumerate<slice::IterMut<T>> {
-        SignedEnumerate::new(self.start(), self.slice_entire_mut().iter_mut())
-    }
-
-    /// Take a slice over all the elements in both the front and back.
-    ///
-    /// This is a lossy operation that
-    /// **looses information on which elements are in the front and back.**
-    #[inline]
-    pub fn slice_entire(&self) -> &[T] {
-        unsafe {
-            slice::from_raw_parts(self.raw_start(), self.len())
-        }
-    }
-    /// Take a mutable slice over all the elements in both the front and back.
-    ///
-    /// This is a lossy operation that
-    /// **looses information on which elements are in the front and back.**
-    #[inline]
-    pub fn slice_entire_mut(&mut self) -> &mut [T] {
-        unsafe {
-            slice::from_raw_parts_mut(self.raw_start(), self.len())
-        }
+        SignedEnumerate::new(self.start(), self[..].iter_mut())
     }
 }
 impl<T: Clone> Clone for TwoSidedVec<T> {
@@ -425,24 +413,185 @@ unsafe impl<#[may_dangle] T> Drop for TwoSidedVec<T> {
     fn drop(&mut self) {
         unsafe {
             // use drop for owned slice `[T]` just like vec
-            ptr::drop_in_place(self.slice_entire_mut())
+            ptr::drop_in_place(&mut self[..])
         }
     }
 }
-
-impl<T> Index<isize> for TwoSidedVec<T> {
+pub trait TwoSidedIndex<T>: Sized + Debug {
+    type Output: ?Sized;
+    unsafe fn get_unchecked(self, target: &TwoSidedVec<T>) -> &Self::Output;
+    unsafe fn get_unchecked_mut(self, target: &mut TwoSidedVec<T>) -> &mut Self::Output;
+    fn check(&self, target: &TwoSidedVec<T>) -> bool;
+    #[inline]
+    fn get(self, target: &TwoSidedVec<T>) -> Option<&Self::Output> {
+        if self.check(target) {
+            Some(unsafe { self.get_unchecked(target) })
+        } else {
+            None
+        }
+    }
+    #[inline]
+    fn get_mut(self, target: &mut TwoSidedVec<T>) -> Option<&mut Self::Output> {
+        if self.check(target) {
+            Some(unsafe { self.get_unchecked_mut(target) })
+        } else {
+            None
+        }
+    }
+    #[inline]
+    fn index(self, target: &TwoSidedVec<T>) -> &Self::Output {
+        if self.check(target) {
+            unsafe { self.get_unchecked(target) }
+        } else {
+            self.invalid()
+        }
+    }
+    #[inline]
+    fn index_mut(self, target: &mut TwoSidedVec<T>) -> &mut Self::Output {
+        if self.check(target) {
+            unsafe { self.get_unchecked_mut(target) }
+        } else {
+            self.invalid()
+        }
+    }
+    #[cold]
+    #[inline(never)]
+    fn invalid(self) -> ! {
+        panic!("Invalid index: {:?}", self)
+    }
+}
+impl<T, I: TwoSidedIndex<T>> Index<I> for TwoSidedVec<T> {
+    type Output = I::Output;
+    #[inline]
+    fn index(&self, index: I) -> &I::Output {
+        index.index(self)
+    }
+}
+impl<T, I: TwoSidedIndex<T>> IndexMut<I> for TwoSidedVec<T> {
+    #[inline]
+    fn index_mut(&mut self, index: I) -> &mut I::Output {
+        index.index_mut(self)
+    }
+}
+impl<T> TwoSidedIndex<T> for isize {
     type Output = T;
+
     #[inline]
-    fn index(&self, index: isize) -> &T {
-        self.get(index).expect("Index out of bounds")
+    unsafe fn get_unchecked(self, target: &TwoSidedVec<T>) -> &Self::Output {
+        debug_assert!(self.check(target));
+        &*target.middle.offset(self)
+    }
+
+    #[inline]
+    unsafe fn get_unchecked_mut(self, target: &mut TwoSidedVec<T>) -> &mut Self::Output {
+        &mut *target.middle.offset(self)
+    }
+
+    #[inline]
+    fn check(&self, target: &TwoSidedVec<T>) -> bool {
+        *self >= target.start_index && *self < target.end_index
     }
 }
-impl<T> IndexMut<isize> for TwoSidedVec<T> {
+impl<T> TwoSidedIndex<T> for Range<isize> {
+    type Output = [T];
+
     #[inline]
-    fn index_mut(&mut self, index: isize) -> &mut T {
-        self.get_mut(index).expect("Index out of bounds")
+    unsafe fn get_unchecked(self, target: &TwoSidedVec<T>) -> &Self::Output {
+        slice::from_raw_parts(
+            target.middle.offset(self.start),
+            target.len()
+        )
+    }
+
+    #[inline]
+    unsafe fn get_unchecked_mut(self, target: &mut TwoSidedVec<T>) -> &mut Self::Output {
+        slice::from_raw_parts_mut(
+            target.middle.offset(self.start),
+            target.len()
+        )
+    }
+
+    #[inline]
+    fn check(&self, target: &TwoSidedVec<T>) -> bool {
+        self.start >= target.start_index
+            && self.start <= self.end
+            && self.end < target.end_index
     }
 }
+
+impl<T> TwoSidedIndex<T> for RangeFull {
+    type Output = [T];
+
+    #[inline]
+    unsafe fn get_unchecked(self, target: &TwoSidedVec<T>) -> &Self::Output {
+        slice::from_raw_parts(
+            target.middle.offset(target.start_index),
+            target.len()
+        )
+    }
+
+    #[inline]
+    unsafe fn get_unchecked_mut(self, target: &mut TwoSidedVec<T>) -> &mut Self::Output {
+        slice::from_raw_parts_mut(
+            target.middle.offset(target.start_index),
+            target.len()
+        )
+    }
+
+    #[inline]
+    fn check(&self, _target: &TwoSidedVec<T>) -> bool {
+        true
+    }
+}
+impl<T> TwoSidedIndex<T> for RangeFrom<isize> {
+    type Output = [T];
+
+    #[inline]
+    unsafe fn get_unchecked(self, target: &TwoSidedVec<T>) -> &Self::Output {
+        slice::from_raw_parts(
+            target.middle.offset(self.start),
+            (target.end_index - self.start) as usize
+        )
+    }
+
+    #[inline]
+    unsafe fn get_unchecked_mut(self, target: &mut TwoSidedVec<T>) -> &mut Self::Output {
+        slice::from_raw_parts_mut(
+            target.middle.offset(self.start),
+            (target.end_index - self.start) as usize
+        )
+    }
+
+    #[inline]
+    fn check(&self, target: &TwoSidedVec<T>) -> bool {
+        self.start >= target.start_index && self.start <= target.end_index
+    }
+}
+impl<T> TwoSidedIndex<T> for RangeTo<isize> {
+    type Output = [T];
+
+    #[inline]
+    unsafe fn get_unchecked(self, target: &TwoSidedVec<T>) -> &Self::Output {
+        slice::from_raw_parts(
+            target.middle.offset(target.start_index),
+            (self.end - target.start_index) as usize
+        )
+    }
+
+    #[inline]
+    unsafe fn get_unchecked_mut(self, target: &mut TwoSidedVec<T>) -> &mut Self::Output {
+        slice::from_raw_parts_mut(
+            target.middle.offset(target.start_index),
+            (self.end - target.start_index) as usize
+        )
+    }
+
+    #[inline]
+    fn check(&self, target: &TwoSidedVec<T>) -> bool {
+        self.end >= target.start_index && self.end <= target.end_index
+    }
+}
+
 
 impl<T: Serialize> Serialize for TwoSidedVec<T> {
     #[inline]
@@ -503,6 +652,6 @@ impl<T, I: Iterator<Item=T>> Iterator for SignedEnumerate<I> {
         }
     }
 }
-impl<I: FusedIterator> FusedIterator for SignedEnumerate<I> {}
-impl<I: ExactSizeIterator> ExactSizeIterator for SignedEnumerate<I> {}
-unsafe impl<I: TrustedLen> TrustedLen for SignedEnumerate<I> {}
+impl<I: iter::FusedIterator> iter::FusedIterator for SignedEnumerate<I> {}
+impl<I: iter::ExactSizeIterator> iter::ExactSizeIterator for SignedEnumerate<I> {}
+unsafe impl<I: iter::TrustedLen> iter::TrustedLen for SignedEnumerate<I> {}

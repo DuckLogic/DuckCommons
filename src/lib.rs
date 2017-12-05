@@ -1,4 +1,43 @@
+#![feature(
+    nonzero, // Needed for NonZeroIndex
+    core, // Needed for NonZero
+    generic_param_attrs, // Needed for generic_param_attrs
+    dropck_eyepatch, // Needed for custom collections
+    const_fn, // I refuse to break encapsulation
+    box_syntax, // This is much nicer than Box::new
+    optin_builtin_traits, // This is much nicer than PhantomData
+    attr_literals, // This seems to be needed for AutoError attributes
+    specialization, // Needed for maybe_debug
+    alloc, // Needed for RawVec
+    fused, // Faster iterators
+    trusted_len, // Faster iterators
+    shared, // Shared is awesome
+    core_intrinsics, // I like to microoptimization and undefined behavior
+)]
 extern crate petgraph;
+extern crate smallvec;
+extern crate seahash;
+extern crate typed_arena;
+extern crate ordermap;
+extern crate owning_ref;
+extern crate core;
+extern crate alloc;
+extern crate serde;
+extern crate num_traits;
+#[macro_use]
+extern crate serde_derive;
+extern crate idmap;
+extern crate parking_lot;
+#[macro_use]
+extern crate duckcommons_derive;
+#[cfg(feature="bincode")]
+extern crate bincode;
+#[cfg(feature="lz4")]
+extern crate lz4;
+extern crate itertools;
+
+use std::fmt::Debug;
+use std::error::Error;
 
 pub mod collect;
 pub mod math;
@@ -6,67 +45,15 @@ pub mod arena_set;
 pub mod env;
 pub mod indexed_arena;
 pub mod lazy;
+pub mod serialize;
+pub mod ptr;
 
-pub use self::lazy::{AtomicLazy, Lazy, EnvironmentFlag};
+pub use self::lazy::{AtomicLazy, Lazy};
 pub use self::collect::{
-    TwoSidedVec, SmallBitSet, SeaHashOrderMap, SeaHashOrderSet, OrderSet, VecMap, VecSet
+    TwoSidedVec, SmallBitSet, SeaHashOrderMap,
+    SeaHashOrderSet, OrderSet, VecMap, VecSet
 };
 
-/// Serialize the specified value into lz4 compressed bincode
-#[inline]
-pub fn serialize_compressed_bincode<T: Serialize, W: Write>(value: &T, write: W) -> Result<(), SerializationError> {
-    let mut encoder = BufWriter::new(Lz4EncoderBuilder::new().build(write)?);
-    ::bincode::serialize_into(&mut encoder, value, ::bincode::Infinite)?;
-    Ok(())
-}
-/// Deserialize the specified value from lz4 compresed bincode
-#[inline]
-pub fn deserialize_compressed_bincode<T: DeserializeOwned, R: Read>(source: R) -> Result<T, SerializationError> {
-    let mut decoder = BufReader::new(Lz4Decoder::new(source)?);
-    Ok(::bincode::deserialize_from(&mut decoder, ::bincode::Infinite)?)
-}
-
-#[derive(AutoError, Debug)]
-pub enum SerializationError {
-    #[error(description("IOError"), display("{cause}"))]
-    IoError {
-        cause: IoError
-    },
-    #[error(description("Invalid bincode"), display("Invalid bincode: {cause}"))]
-    Bincode {
-        cause: ::bincode::Error
-    }
-}
-
-pub struct NodeRange<T: IndexType = u32> {
-    index: NodeIndex<T>,
-    end: NodeIndex<T>
-}
-impl<T: IndexType> NodeRange<T> {
-    #[inline]
-    pub fn until(end: NodeIndex<T>) -> Self {
-        NodeRange::new(NodeIndex::new(0), end)
-    }
-    #[inline]
-    pub fn new(start: NodeIndex<T>, end: NodeIndex<T>) -> Self {
-        debug_assert!(start <= end);
-        NodeRange { index: start, end }
-    }
-}
-impl<T: IndexType> Iterator for NodeRange<T> {
-    type Item = NodeIndex<T>;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        let index = self.index;
-        if index < self.end {
-            self.index = NodeIndex::new(index.index() + 1);
-            Some(index)
-        } else {
-            None
-        }
-    }
-}
 pub fn maybe_debug<T>(value: &T) -> Option<String> {
     value.maybe_debug()
 }
@@ -82,9 +69,7 @@ default impl<T> MaybeDebug for T {
 impl<T: Debug> MaybeDebug for T {
     #[inline]
     fn maybe_debug(&self) -> Option<String> {
-        let mut buffer = String::new();
-        write!(buffer, "{:?}", self).expect("Unable to debug!");
-        Some(buffer)
+        Some(format!("{:?}", self))
     }
 }
 /// Generalization of the `ToOwned` trait,
@@ -118,53 +103,6 @@ impl<'a> IntoOwned<String> for &'a str {
     #[inline]
     fn into_owned(self) -> String {
         self.to_owned()
-    }
-}
-
-/// Pointer extensions which apply directly to pointer types,
-/// and to their wrappers `Shared<T>` and `Unique<T>`
-pub trait PointerExt<T>: Sized + Copy {
-    fn ptr(self) -> *mut T;
-
-    #[inline]
-    fn byte_distance(self, other: Self) -> usize {
-        (other.ptr() as usize).wrapping_sub(self.ptr() as usize)
-    }
-    #[inline]
-    fn byte_offset(self, other: Self) -> isize {
-        (other.ptr() as isize).wrapping_sub(self.ptr() as isize)
-    }
-    /// Compute the distance from this pointer to the other pointer,
-    /// resulting in undefined behavior if this pointer is greater than the other pointer,
-    /// or if the type is a zero-sized type.
-    #[inline]
-    unsafe fn unchecked_distance_to(self, other: Self) -> usize {
-        debug_assert_ne!(mem::size_of::<T>(), 0);
-        debug_assert!(self.ptr() <= other.ptr());
-        intrinsics::unchecked_div(
-            self.byte_distance(other),
-            mem::size_of::<T>()
-        )
-    }
-    #[inline]
-    unsafe fn unchecked_offset_to(self, other: Self) -> isize {
-        debug_assert_ne!(mem::size_of::<T>(), 0);
-        intrinsics::unchecked_div(
-            self.byte_offset(other),
-            mem::size_of::<T>() as isize
-        )
-    }
-}
-impl<T> PointerExt<T> for Shared<T> {
-    #[inline]
-    fn ptr(self) -> *mut T {
-        self.as_ptr()
-    }
-}
-impl<T> PointerExt<T> for *mut T {
-    #[inline]
-    fn ptr(self) -> *mut T {
-        self
     }
 }
 

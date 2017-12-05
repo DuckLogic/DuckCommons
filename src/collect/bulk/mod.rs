@@ -1,17 +1,9 @@
 //! Performs bulk insertions
-use std::cmp::{Ord, Ordering, Reverse};
-use super::insertion_sort;
-use std::ptr;
+use super::insertion_sort_by_key;
 
 pub struct Insertion<T> {
     pub index: usize,
     pub element: T
-}
-impl<T> Ord for Insertion<T> {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.index.cmp(other.index)
-    }
 }
 pub struct InsertionSet<T>(Vec<Insertion<T>>);
 impl<T> InsertionSet<T> {
@@ -19,7 +11,7 @@ impl<T> InsertionSet<T> {
     ///
     /// The average runtime of this function is `O(n + m)`,
     /// where `n` is the number of existing elements and `m` is the number of insertions.
-    pub fn apply(self, target: &mut Vec<T>) {
+    pub fn apply(&mut self, target: &mut Vec<T>) {
         /*
          * Why would we possibly want to use insertion sort here?
          * First of all,
@@ -38,7 +30,7 @@ impl<T> InsertionSet<T> {
          * This is inspired by WebKit's choice to use bubble sort for their insertion set,
          * except that bubble sort is a terrible algorithm and insertion sort is much better.
          */
-        insertion_sort(&mut self.0);
+        insertion_sort_by_key(&mut self.0, |insertion| insertion.index);
         /*
          * We perform insertions in reverse order to reduce moving memory,
          * and ensure that the function is panic safe.
@@ -66,12 +58,7 @@ impl<T> InsertionSet<T> {
          * resulting in the desired result: [0, 1, 2, 3, 4, 9, 11].
          */
         unsafe {
-            let original_insertions = self.0.len();
-            let original_len = target.len();
-            let mut remaining_insertions = original_insertions;
-            target.reserve(remaining_insertions);
             target.set_len(0);
-            let ptr = target.as_mut_ptr();
             // TODO: Unit test so I can implement this correctly
             unimplemented!()
         }

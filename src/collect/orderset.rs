@@ -1,3 +1,12 @@
+use std::fmt::{self, Formatter, Debug};
+use std::hash::{Hash, BuildHasher};
+use std::collections::hash_map::RandomState;
+use std::marker::PhantomData;
+use std::borrow::Borrow;
+
+use serde::ser::{Serialize, Serializer, SerializeSeq};
+use serde::de::{Deserialize, Deserializer, SeqAccess, Visitor};
+use ordermap::OrderMap;
 
 #[derive(Clone)]
 pub struct OrderSet<T: Eq + Hash, S: BuildHasher = RandomState>(OrderMap<T, (), S>);

@@ -1,12 +1,17 @@
+
+use std::cmp::Ordering;
+use std::hash::BuildHasherDefault;
+
+use itertools::Itertools;
+use ordermap::OrderMap;
+use seahash::SeaHasher;
+
 pub mod orderset;
 pub mod bitset;
 pub mod two_sided;
 pub mod vecmap;
 pub mod vecset;
 pub mod bulk;
-
-use std::cmp::Ordering;
-use std::ptr;
 
 pub use self::orderset::OrderSet;
 pub use self::bitset::SmallBitSet;
@@ -24,10 +29,10 @@ pub fn is_sorted_by_key<T, B: Ord, F: FnMut(&T) -> B>(data: &[T], mut func: F) -
 }
 
 #[inline]
-pub fn is_sorted_with<T, F: FnMut(&T, &T) -> cmp::Ordering>(data: &[T], mut func: F) -> bool {
+pub fn is_sorted_with<T, F: FnMut(&T, &T) -> Ordering>(data: &[T], mut func: F) -> bool {
     for (prev, element) in data.iter().tuple_windows() {
         // if element < prev
-        if func(element, prev) == cmp::Ordering::Less {
+        if func(element, prev) == Ordering::Less {
             return false;
         }
     }
@@ -64,10 +69,10 @@ pub fn insertion_sort<T: Ord>(target: &mut [T]) {
 
 /// Performs an insertion sort on the specified slice,
 /// comparing values using the specified function.
-pub fn insertion_sort_by<T, F>(target: &mut [T], compare: F) where F: FnMut(&T, &T) -> Ordering {
+pub fn insertion_sort_by<T, F>(target: &mut [T], mut compare: F) where F: FnMut(&T, &T) -> Ordering {
     for i in 1..target.len() {
         let mut j = i;
-        while j > 0 && compare(target[j - 1], target[j]) == Ordering::Greater {
+        while j > 0 && compare(&target[j - 1], &target[j]) == Ordering::Greater {
             target.swap(j, j - 1);
             j -= 1;
         }
@@ -77,7 +82,7 @@ pub fn insertion_sort_by<T, F>(target: &mut [T], compare: F) where F: FnMut(&T, 
 /// Performs an insertion sort on the specified slice,
 /// comparing values using the specified function.
 #[inline]
-pub fn insertion_sort_by_key<T, B, F>(target: &mut [T], func: F) where B: Ord, F: FnMut(&T) -> B {
-    insertion_sort_by(target, |first, second| func(first).cmp(func(second)))
+pub fn insertion_sort_by_key<T, B, F>(target: &mut [T], mut func: F) where B: Ord, F: FnMut(&T) -> B {
+    insertion_sort_by(target, |first, second| func(first).cmp(&func(second)))
 }
 

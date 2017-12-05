@@ -1,3 +1,8 @@
+use std::fmt::{self, Formatter, Debug, Display};
+use core::nonzero::{NonZero, Zeroable};
+
+use num_traits::{Unsigned, PrimInt};
+use idmap::{IntegerId};
 
 pub unsafe trait NonZeroIndexType: IntegerId + Debug + Display + Unsigned + PrimInt + Zeroable {
     fn type_name() -> &'static str;

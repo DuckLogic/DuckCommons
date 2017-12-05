@@ -1,3 +1,12 @@
+use std::{ptr, mem, intrinsics};
+use std::cell::Cell;
+use std::sync::atomic::{AtomicPtr, Ordering};
+use std::fmt::{self, Formatter, Debug};
+
+use parking_lot::Once;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use super::maybe_debug;
 
 pub struct AtomicLazy<T: Sync> {
     value: AtomicPtr<T>,
@@ -190,7 +199,7 @@ impl<T> Lazy<T> {
         self.initialize(loader())
     }
     #[inline]
-    fn into_inner(self) -> Option<T> {
+    pub fn into_inner(self) -> Option<T> {
         self.value.into_inner()
     }
     #[inline]

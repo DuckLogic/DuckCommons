@@ -27,7 +27,7 @@ impl<T: Ord> VecSet<T> {
     }
     #[inline]
     pub fn iter(&self) -> Iter<T> {
-        self.0.iter()
+        self.0.keys()
     }
 
 }

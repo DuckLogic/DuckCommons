@@ -1,17 +1,12 @@
 use std::cell::RefCell;
 use std::marker::PhantomData;
-use std::convert::TryFrom;
-use core::nonzero::NonZero;
 use std::fmt::{self, Debug, Formatter};
 use std::ptr::Shared;
-use serde::ser::SerializeSeq;
-use serde::{Serialize, Deserialize, Deserializer, Serializer};
 use typed_arena::Arena;
 use std::iter::{FromIterator, TrustedLen};
-use std::ops::{Index, IndexMut, Deref};
-use std::rc::Rc;
+use std::ops::{Index, IndexMut};
 
-use utils::NonZeroIndex;
+use math::index::NonZeroIndex;
 use idmap::IntegerId;
 
 pub struct ArenaIndex<T> {

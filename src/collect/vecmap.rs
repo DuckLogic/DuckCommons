@@ -1,10 +1,11 @@
-use std::cmp::{Ord, Ordering};
+use std::cmp::{Ord};
 use std::{slice, mem, iter};
+use super::insertion_sort_by;
 
 /// The threshold below which we prefer a linear search instead of a binary search.
 ///
 /// Although binary searches are asymptotically more efficient for large sets,
-/// you usually get better .
+/// you usually get better performance with a linear search for small sets.
 /// After this threshold we fallback to an out-of-line binary search,
 /// which will allow performance to degrade gracefully for large sets.
 const LINEAR_SEARCH_THRESHOLD: usize = 8;
@@ -36,14 +37,13 @@ impl<K: Ord, V> VecMap<K, V> {
     /// This function computes in `O(log n)` time if the key already had a value,
     /// and `O(n)` time if the key was missing.
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        match self.binary_search_by_key(key) {
+        match self.binary_search_by_key(&key) {
             Ok(existing_index) => {
                 let entry = &mut self.0[existing_index];
-                debug_assert_eq!(entry.0, key);
                 Some(mem::replace(&mut entry.1, value))
             },
             Err(target_index) => {
-                self.0.insert(target_index, value);
+                self.0.insert(target_index, (key, value));
                 None
             }
         }
@@ -56,8 +56,11 @@ impl<K: Ord, V> VecMap<K, V> {
 
     /// Lookup the value associated with the specified key in `O(log n)` time.
     #[inline]
-    pub fn get_mut(&self, key: &K) -> Option<&V> {
-        self.find(key).map(|index| &mut self.0[index].1)
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        match self.find(key) {
+            Some(index) => Some(&mut self.0[index].1),
+            None => None
+        }
     }
     #[inline]
     pub fn iter(&self) -> Iter<K, V> {
@@ -85,19 +88,16 @@ impl<K: Ord, V> VecMap<K, V> {
     }
     #[inline]
     fn binary_search_by_key(&self, key: &K) -> Result<usize, usize> {
-        self.0.binary_search_by_key(key, |&(ref key, _)| key)
+        self.0.binary_search_by_key(&key, |&(ref key, _)| key)
     }
 }
 /// Extend the map with the entries from the specified iterator.
-///
-/// Given, `m` existing elements and `n` additional elements,
-/// this operation is guaranteed to run in `O(m log m + n)` time.
 impl<K: Ord, V> Extend<(K, V)> for VecMap<K, V> {
     fn extend<T: IntoIterator<Item=(K, V)>>(&mut self, iter: T) {
-        let newly_added = self.0.len();
         self.0.extend(iter);
-        // Sort the newly added elements in `O(m log m)` time
-        self.0[newly_added..].sort();
+        // Sort and deduplicate the elements
+        insertion_sort_by(&mut self.0, |first, second| first.0.cmp(&second.0));
+        self.0.dedup_by(|first, second| first.0 == second.0);
     }
 }
 pub struct Iter<'a, K: Ord + 'a, V: 'a>(slice::Iter<'a, (K, V)>);

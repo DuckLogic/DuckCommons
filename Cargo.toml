@@ -45,8 +45,25 @@ fixedbitset = "^0.1.8"
 # Compile time maps
 phf = "^0.7.21"
 phf_macros = "^0.7.21"
+# Better concurrency primitives
+parking_lot = { version = "^0.4.8", features = ["nightly"] }
+# Generic traits for numbers
+num-traits = "^0.1.40"
+# Rust itertools
+itertools = "^0.6.1"
+# Fast Compression
+lz4 = { version = "^1.22.0", optional = true }
+# Lightweight binary serialization
+bincode = { version = "^0.9.0", optional = true }
 
-[dependencies.ducklogic-derive]
+
+# TODO: Use released version of ordermap once it's published/
+[dependencies.ordermap]
+git = "https://github.com/bluss/ordermap"
+features = ["serde-1",]
+
+[dependencies.duckcommons-derive]
 path = "derive"
 
+[workspace]
 

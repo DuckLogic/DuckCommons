@@ -1,5 +1,7 @@
 # IntelliJ
 .idea
+*.iml
 
 # Rust
-Cargo.toml.lock
+Cargo.lock
+target

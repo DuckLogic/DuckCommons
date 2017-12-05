@@ -1,3 +1,6 @@
+use std::env::{var, VarError};
+use std::fmt::{self, Display, Formatter};
+use std::str::FromStr;
 
 /// Parse the specified environment variable as a flag if present, panicking if it's invalid
 pub fn environment_flag(variable: &str) -> Option<bool> {
@@ -18,7 +21,7 @@ pub fn environment_config<T: FromStr>(variable: &str) -> Option<T> where T::Err:
 }
 #[inline]
 pub fn try_environment_config<T: FromStr>(name: &str) -> Result<T, EnvironmentError<T::Err>> {
-    match env::var(name) {
+    match var(name) {
         Ok(result) => {
             result.parse().map_err(|cause| EnvironmentError {
                 variable: name.to_owned(),

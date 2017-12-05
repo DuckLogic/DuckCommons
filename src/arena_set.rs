@@ -1,15 +1,13 @@
 use std::ptr::Shared;
 use std::hash::{Hash, Hasher, BuildHasherDefault};
 use std::cell::{RefCell, RefMut, Ref};
-use std::borrow::Borrow;
 use std::marker::PhantomData;
 
 use seahash::SeaHasher;
 use typed_arena::Arena;
-use ordermap::{Keys, OrderMap, Equivalent};
-use owning_ref::OwningHandle;
+use ordermap::{OrderMap, Equivalent};
 
-use utils::{IntoOwned};
+use IntoOwned;
 
 type InternalMap<T> = OrderMap<HashedShared<T>, Shared<T>, BuildHasherDefault<IdiotHasher>>;
 
