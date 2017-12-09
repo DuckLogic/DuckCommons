@@ -1,12 +1,63 @@
 //! Performs bulk insertions
+use std::iter::FromIterator;
+use std::fmt::{self, Debug, Formatter};
+
 use super::insertion_sort_by_key;
+
+mod shift;
+
+use self::shift::BulkShifter;
 
 pub struct Insertion<T> {
     pub index: usize,
     pub element: T
 }
-pub struct InsertionSet<T>(Vec<Insertion<T>>);
+impl<T> Insertion<T> {
+    #[inline]
+    pub fn new(index: usize, element: T) -> Self {
+        Insertion { index, element }
+    }
+}
+impl<T> From<(usize, T)> for Insertion<T> {
+    #[inline]
+    fn from(tuple: (usize, T)) -> Self {
+        Insertion::new(tuple.0, tuple.1)
+    }
+}
+impl<T: Debug> Debug for Insertion<T> {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.debug_tuple("Insertion")
+            .field(&self.index)
+            .field(&self.element)
+            .finish()
+    }
+}
+pub struct InsertionSet<T> {
+    insertions: Vec<Insertion<T>>
+}
 impl<T> InsertionSet<T> {
+    #[inline]
+    pub fn new() -> Self {
+        InsertionSet { insertions: Vec::new() }
+    }
+    #[inline]
+    pub fn push(&mut self, insertion: Insertion<T>) {
+        self.insertions.push(insertion)
+    }
+    #[inline]
+    pub fn insert(&mut self, index: usize, element: T) {
+        self.push(Insertion { index, element })
+    }
+    #[inline]
+    pub fn applied(mut self, mut target: Vec<T>) -> Vec<T> {
+        self.apply(&mut target);
+        target
+    }
+    #[inline]
+    pub fn desired_insertions(&self) -> usize {
+        self.insertions.len()
+    }
     /// Applies all the insertions to the specified target vector.
     ///
     /// The average runtime of this function is `O(n + m)`,
@@ -15,11 +66,11 @@ impl<T> InsertionSet<T> {
         /*
          * Why would we possibly want to use insertion sort here?
          * First of all,
-         * we need to maintain a stable sort to preserve the order of the `Insertion`s.
+         * we need to maintain a stable sort to preserve the original order of the `Insertion`s.
          * Insertion sort has many other advantages over mergesort and quicksort,
          * and can be significantly faster in some scenarios.
          *
-         * Insertion sort has average running time `O(nk)`,
+         * When the array is already mostly sorted, insertion sort has average running time `O(nk)`,
          * where `k` is the average distance of each element from its proper position.
          * In a randomly sorted array `k == n` giving `O(n^2)` worst case performance,
          * this isn't true in all scenarios as `k` may be significantly smaller.
@@ -30,12 +81,13 @@ impl<T> InsertionSet<T> {
          * This is inspired by WebKit's choice to use bubble sort for their insertion set,
          * except that bubble sort is a terrible algorithm and insertion sort is much better.
          */
-        insertion_sort_by_key(&mut self.0, |insertion| insertion.index);
+        insertion_sort_by_key(&mut *self.insertions, |insertion| insertion.index);
+        let mut shifter = BulkShifter::new(target, self.insertions.len());
         /*
          * We perform insertions in reverse order to reduce moving memory,
          * and ensure that the function is panic safe.
          *
-         * For example, given the vector `[1, 4, 5, 7, 11]`
+         * For example, given the vector
          * and the InsertionSet `[(0, 0), (1, 2), (1, 3) (4, 9)]`:
          *
          * Since the first (working backwards) insertion is `(4, 9)`,
@@ -57,12 +109,43 @@ impl<T> InsertionSet<T> {
          * Finally, we perform the same process for the final insertion (0, 0),
          * resulting in the desired result: [0, 1, 2, 3, 4, 9, 11].
          */
-        unsafe {
-            target.set_len(0);
-            // TODO: Unit test so I can implement this correctly
-            unimplemented!()
+        while !shifter.is_finished() {
+            let Insertion { index, element } = self.insertions.pop()
+                .expect("Expected more insertions!");
+            shifter.shift_original(index);
+            shifter.push_shifted(element);
         }
-
+        shifter.finish();
     }
 }
-
+impl<T> FromIterator<Insertion<T>> for InsertionSet<T> {
+    #[inline]
+    fn from_iter<I: IntoIterator<Item=Insertion<T>>>(iter: I) -> Self {
+        InsertionSet { insertions: iter.into_iter().collect() }
+    }
+}
+impl<T> FromIterator<(usize, T)> for InsertionSet<T> {
+    #[inline]
+    fn from_iter<I: IntoIterator<Item=(usize, T)>>(iter: I) -> Self {
+        iter.into_iter().map(Insertion::from).collect()
+    }
+}
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn basic() {
+        /*
+        * For example, given the vector `[1, 4, 5, 7, 11]`
+        * and the InsertionSet `[(0, 0), (1, 2), (1, 3) (4, 9)]`:
+        */
+        let vector = vec![1, 4, 5, 7, 11];
+        let insertions = [(0, 0), (1, 2), (1, 3), (4, 9)].iter()
+            .cloned()
+            .collect::<InsertionSet<u32>>();
+        assert_eq!(
+            insertions.applied(vector),
+            vec![0, 1, 2, 3, 4, 5, 7, 9, 11]
+        );
+    }
+}

@@ -12,7 +12,7 @@
     fused, // Faster iterators
     trusted_len, // Faster iterators
     shared, // Shared is awesome
-    core_intrinsics, // I like to microoptimization and undefined behavior
+    core_intrinsics, // I like microoptimization and undefined behavior
 )]
 extern crate petgraph;
 extern crate smallvec;
@@ -36,8 +36,26 @@ extern crate bincode;
 extern crate lz4;
 extern crate itertools;
 
-use std::fmt::Debug;
+use std::fmt::{Debug};
 use std::error::Error;
+
+/// Attempts to debug the specified value,
+/// by casting it to a `&Debug` trait object if possible.
+///
+/// If the cast fails, this falls back to using `"<unknown>"`
+/// though this behavior can be overridden if desired.
+///
+/// This is simply a thin wrapper around `cast_debug`,
+/// which performs all of the underlying magic.
+#[macro_export]
+macro_rules! maybe_debug {
+    ($target:ident) => (maybe_debug!(&$target));
+    ($target:expr) => (maybe_debug!($target, "<unknown>"));
+    ($target:expr, $fallback:expr) => ({
+        const FALLBACK: &::std::fmt::Debug = &$fallback;
+        ($crate::cast_debug($target)).unwrap_or(FALLBACK)
+    });
+}
 
 pub mod collect;
 pub mod math;
@@ -54,22 +72,25 @@ pub use self::collect::{
     SeaHashOrderSet, OrderSet, VecMap, VecSet
 };
 
-pub fn maybe_debug<T>(value: &T) -> Option<String> {
-    value.maybe_debug()
+#[inline]
+pub fn cast_debug<T>(value: &T) -> Option<&Debug> {
+    <T as CastDebug>::maybe_debug(value)
 }
-trait MaybeDebug {
-    fn maybe_debug(&self) -> Option<String>;
+trait CastDebug {
+    fn maybe_debug(&self) -> Option<&Debug>;
 }
-default impl<T> MaybeDebug for T {
+default impl<T> CastDebug for T {
     #[inline]
-    fn maybe_debug(&self) -> Option<String> {
+    fn maybe_debug(&self) -> Option<&Debug> {
         None
     }
 }
-impl<T: Debug> MaybeDebug for T {
+
+
+impl<T: Debug> CastDebug for T {
     #[inline]
-    fn maybe_debug(&self) -> Option<String> {
-        Some(format!("{:?}", self))
+    fn maybe_debug(&self) -> Option<&Debug> {
+        Some(self)
     }
 }
 /// Generalization of the `ToOwned` trait,
@@ -117,25 +138,28 @@ impl<'a> IntoOwned<String> for &'a str {
 /// and if it's the only variant in the struct it will cause a `From` implementation to be automatically derived.
 /// ## Examples
 /// ```
+/// # #![feature(attr_literals)]
 /// # #[macro_use]
-/// # extern crate ducklogic_derivee;
-/// # use std::io::{Error as IOError, ErrorKind as IOErrorKind};
+/// # extern crate duckcommons_derive;
+/// # extern crate duckcommons;
+/// # use duckcommons::AutoError;
+/// # use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 /// #[derive(AutoError, Debug)]
 /// pub enum ExampleError {
 ///     #[error(description("Invalid input"), display("Invalid input: {input}"))]
 ///     InvalidInput { input: String },
-///     #[error(description("IOError"), display("IOError: {cause}"))]
-///     IOError { cause: IOError },
+///     #[error(description("IoError"), display("IoError: {cause}"))]
+///     IOError { cause: IoError },
 ///     #[error(description("Monty python rocks"))]
 ///     MontyPythonOverload
 /// }
 /// # fn main() {
 ///     assert_eq!(
-///         format!("{}", ExampleError::from(IOError::new(ErrorKind::NotFound, None))),
-///         "IOError: entity not found
+///         format!("{}", ExampleError::from(IoError::from(IoErrorKind::NotFound))),
+///         "IoError: entity not found"
 ///     );
 ///     assert_eq!(
-///         format!("{}", ExampleError::InvalidInput { input: "your mom".to_owned }),
+///         format!("{}", ExampleError::InvalidInput { input: "your mom".to_owned() }),
 ///         "Invalid input: your mom"
 ///     );
 ///     /*
@@ -144,7 +168,7 @@ impl<'a> IntoOwned<String> for &'a str {
 ///      */
 ///     assert_eq!(
 ///         format!("{}", ExampleError::MontyPythonOverload),
-///         "Monty python rocks
+///         "Monty python rocks"
 ///     );
 /// # }
 /// ```

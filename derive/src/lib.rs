@@ -134,7 +134,7 @@ fn destructure_each<F>(target: &VariantData, mut func: F) -> quote::Tokens
             }).collect::<Vec<_>>();
             quote! { (#(#destructuring),*) }
         },
-        VariantData::Unit => quote!(())
+        VariantData::Unit => quote!()
     }
 }
 
@@ -792,7 +792,7 @@ fn debug_derive(duration: Duration, name: &str, ident: &Ident, tokens: &quote::T
                         println!("{}// NOTE: Failed to rustfmt", indent);
                         tokens.as_str().to_owned()
                     },
-                    Err(e) => panic!("Failed to rustfmt: {}")
+                    Err(e) => panic!("Failed to rustfmt: {}", tokens.as_str())
                 };
                 for line in code.lines() {
                     println!("{}{}", indent, line);
@@ -817,6 +817,7 @@ fn milliseconds(duration: Duration) -> u64 {
     ((duration.as_secs() as f64) * 10e3
         + (duration.subsec_nanos() as f64) * 10e-6).round() as u64
 }
+
 fn rustfmt(target: &str) -> io::Result<Option<String>> {
     let mut child = Command::new("rustfmt")
         .stdin(Stdio::piped())

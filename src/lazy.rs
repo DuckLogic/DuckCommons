@@ -6,8 +6,6 @@ use std::fmt::{self, Formatter, Debug};
 use parking_lot::Once;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::maybe_debug;
-
 pub struct AtomicLazy<T: Sync> {
     value: AtomicPtr<T>,
     once: Once
@@ -55,8 +53,8 @@ impl<T: Sync> AtomicLazy<T> {
                 if let Err((value, existing)) = self.try_initialize(loader()) {
                     panic!(
                         "Can't initialize with {:?} since already {:?}",
-                        maybe_debug(&value).unwrap_or_else(|| "<unknown>".to_owned()),
-                        maybe_debug(existing).unwrap_or_else(|| "<unknown>".to_owned())
+                        maybe_debug!(value),
+                        maybe_debug!(existing)
                     )
                 }
             }
@@ -83,8 +81,8 @@ impl<T: Sync> AtomicLazy<T> {
             Err((value, existing)) => {
                 panic!(
                     "Can't initialize with {:?} since already {:?}",
-                    maybe_debug(&value).unwrap_or_else(|| "<unknown>".to_owned()),
-                    maybe_debug(existing).unwrap_or_else(|| "<unknown>".to_owned())
+                    maybe_debug!(&value),
+                    maybe_debug!(existing)
                 )
             }
         }
@@ -212,7 +210,7 @@ impl<T> Lazy<T> {
             Err(existing) => {
                 panic!(
                     "Can't initialize since already {:?}",
-                    maybe_debug(existing).unwrap_or_else(|| "<unknown>".to_owned())
+                    maybe_debug!(existing)
                 )
             }
         }
