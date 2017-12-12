@@ -173,3 +173,16 @@ impl<'a> IntoOwned<String> for &'a str {
 /// # }
 /// ```
 pub trait AutoError: Error {}
+
+#[cold] #[inline(never)]
+pub fn display_panic_message(dynamic: Box<::std::any::Any + Send + 'static>) -> String {
+    match dynamic.downcast::<String>() {
+        Ok(message) => *message,
+        Err(dynamic) => {
+            match dynamic.downcast::<&'static str>() {
+                Ok(message) => (*message).to_owned(),
+                Err(_) => "<UNKNOWN PANIC MESSAGE>".to_owned()
+            }
+        }
+    }
+}
