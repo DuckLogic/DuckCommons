@@ -48,6 +48,16 @@ impl<K: Ord, V> VecMap<K, V> {
             }
         }
     }
+    /// Removes the value associated with the specified key from this map.
+    ///
+    /// This function computes in `O(log n)` time if the key is missing,
+    /// and `O(n)` time if the key is present.
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        match self.find(&key) {
+            Some(index) => Some(self.0.remove(index).1),
+            None => None
+        }
+    }
     /// Lookup the value associated with the specified key in `O(log n)` time.
     #[inline]
     pub fn get(&self, key: &K) -> Option<&V> {
