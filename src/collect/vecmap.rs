@@ -1,4 +1,5 @@
 use std::cmp::{Ord};
+use std::fmt::{self, Debug, Formatter};
 use std::{slice, mem, iter};
 use super::insertion_sort_by;
 
@@ -160,3 +161,8 @@ impl<'a, K: Ord + 'a, V: 'a> iter::FusedIterator for Values<'a, K, V> {}
 impl<'a, K: Ord + 'a, V: 'a> iter::ExactSizeIterator for Values<'a, K, V> {}
 unsafe impl<'a, K: Ord + 'a, V: 'a> iter::TrustedLen for Values<'a, K, V> {}
 
+impl<K: Ord + Debug, V: Debug> Debug for VecMap<K, V> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
+    }
+}

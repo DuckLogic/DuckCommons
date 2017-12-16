@@ -1,3 +1,5 @@
+use std::fmt::{self, Formatter, Debug};
+
 use super::VecMap;
 
 /// A set backed by a vector of sorted elements.
@@ -32,3 +34,10 @@ impl<T: Ord> VecSet<T> {
 
 }
 pub type Iter<'a, T> = super::vecmap::Keys<'a, T, ()>;
+
+impl<T: Ord + Debug> Debug for VecSet<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.debug_set().entries(self.iter()).finish()
+    }
+}
+
