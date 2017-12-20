@@ -101,6 +101,14 @@ impl<K: Ord, V> VecMap<K, V> {
     fn binary_search_by_key(&self, key: &K) -> Result<usize, usize> {
         self.0.binary_search_by_key(&key, |&(ref key, _)| key)
     }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 /// Extend the map with the entries from the specified iterator.
 impl<K: Ord, V> Extend<(K, V)> for VecMap<K, V> {
