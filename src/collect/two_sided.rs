@@ -101,6 +101,28 @@ impl<T> TwoSidedVec<T> {
             self.end_index += 1;
         }
     }
+    #[inline]
+    pub fn pop_front(&mut self) -> Option<T> {
+        if self.end_index > 0 {
+            self.end_index -= 1;
+            unsafe {
+                Some(ptr::read(self.middle.offset(self.end_index)))
+            }
+        } else {
+            None
+        }
+    }
+    #[inline]
+    pub fn pop_back(&mut self) -> Option<T> {
+        if self.start_index < 0 {
+            self.start_index -= 1;
+            unsafe {
+                Some(ptr::read(self.middle.offset(self.start_index + 1)))
+            }
+        } else {
+            None
+        }
+    }
     /// Push the specified value into the front of this queue,
     /// without modifying its `end` or touching the front of the queue.
     ///
@@ -350,6 +372,15 @@ impl<T> TwoSidedVec<T> {
         debug_assert!(self.raw_start() <= self.middle);
         debug_assert!(self.raw_end() >= self.middle);
         true
+    }
+    pub fn clear(&mut self) {
+        while let Some(value) = self.pop_back()  {
+            drop(value)
+        }
+        while let Some(value) = self.pop_front() {
+            drop(value)
+        }
+        debug_assert_eq!(self.len(), 0);
     }
     /// Enumerate the indices and values of the elements in the back of the vector.
     ///
