@@ -1,8 +1,8 @@
 use std::ptr::{self, Unique};
 use std::ops::{Add};
-use std::mem::ManuallyDrop;
+use std::mem;
 
-use alloc::raw_vec::RawVec;
+use std::heap::{Alloc, Layout, Heap};
 
 pub struct RawTwoSidedVec<T> {
     middle: Unique<T>,
@@ -16,53 +16,57 @@ impl<T> RawTwoSidedVec<T> {
             capacity: Capacity { back: 0, front: 0 }
         }
     }
-    #[inline]
     pub fn with_capacity(capacity: Capacity) -> Self {
-        let raw = RawVec::with_capacity(capacity.checked_total());
-        RawTwoSidedVec { capacity, middle: unsafe { Unique::new_unchecked(raw.ptr()) }, }
+        assert_ne!(mem::size_of::<T>(), 0, "Zero sized type!");
+        let mut heap = Heap::default();
+        let raw = heap.alloc_array::<T>(capacity.checked_total())
+            .unwrap_or_else(|e| heap.oom(e));
+        unsafe {
+            let middle = raw.as_ptr().add(capacity.back);
+            RawTwoSidedVec::from_raw_parts(middle, capacity)
+        }
+    }
+    #[inline]
+    pub unsafe fn from_raw_parts(middle: *mut T, capacity: Capacity) -> Self {
+        debug_assert!(!middle.is_null());
+        RawTwoSidedVec { middle: Unique::new_unchecked(middle), capacity }
     }
     #[inline]
     pub fn capacity(&self) -> &Capacity {
         &self.capacity
     }
     #[inline]
-    pub fn start(&self) -> *mut T {
-        unsafe { self.middle().sub(self.capacity.back) }
-    }
-    #[inline]
-    pub fn end(&self) -> *mut T {
-        unsafe { self.middle().add(self.capacity.front) }
-    }
-    #[inline]
     pub fn middle(&self) -> *mut T {
         self.middle.as_ptr()
     }
-    /// You're free to view this as a raw vector,
-    /// as long as you promise not to free the underlying memory.
+    /// A pointer to the start of the allocation
     #[inline]
-    unsafe fn as_raw_vec(&self) -> ManuallyDrop<RawVec<T>> {
-        ManuallyDrop::new(RawVec::from_raw_parts(self.middle(), self.capacity().total()))
+    fn alloc_start(&self) -> *mut T {
+        unsafe { self.middle.as_ptr().sub(self.capacity.back) }
     }
-    #[inline(never)] #[cold]
-    pub fn reserve_in_place(&mut self, request: CapacityRequest) -> bool {
+    fn reserve_in_place(&mut self, request: CapacityRequest) -> bool {
         let requested_capacity = request.used + request.needed;
-        let mut raw = unsafe { self.as_raw_vec() };
         /*
          * If we have enough room in the back,
          * we can attempt in-place reallocation first.
          * This avoids moving any memory unless we absolutely need to.
          */
-        if self.capacity.back >= requested_capacity.back {
-            if raw.reserve_in_place(
-                request.used.total(),
-                request.needed.total()
-            ) {
-                assert_eq!(self.middle(), raw.ptr());
-                self.capacity = requested_capacity;
-                return true;
+        let mut heap = Heap::default();
+        if !self.capacity.is_empty() && self.capacity.back >= requested_capacity.back {
+            match unsafe { heap.grow_in_place(
+                self.alloc_start() as *mut u8,
+                self.capacity.layout::<T>(),
+                requested_capacity.layout::<T>()
+            ) } {
+                Ok(()) => {
+                    self.capacity = requested_capacity;
+                    true
+                },
+                Err(_) => false
             }
+        } else {
+            false
         }
-        false
     }
     #[inline(never)] #[cold]
     pub fn reserve(&mut self, request: CapacityRequest) {
@@ -70,24 +74,31 @@ impl<T> RawTwoSidedVec<T> {
         let requested_capacity = request.used + request.needed;
         if !self.capacity.can_fit(requested_capacity) && !self.reserve_in_place(request) {
             unsafe {
-                let reallocated = RawTwoSidedVec::with_capacity(requested_capacity);
+                let reallocated = Self::with_capacity(requested_capacity);
                 // Fallback to reallocating the vector and moving its memory.
                 ptr::copy_nonoverlapping(
-                    self.start(),
-                    reallocated.start(),
+                    self.middle().sub(request.used.back),
+                    reallocated.middle().sub(request.used.back),
                     request.used.total()
                 );
-                self.middle = reallocated.middle;
-                self.capacity = requested_capacity;
-                ::std::mem::forget(reallocated);
+                drop(mem::replace(self, reallocated));
             }
         }
+        debug_assert!(self.capacity.can_fit(requested_capacity));
     }
 }
 unsafe impl<#[may_dangle] T> Drop for RawTwoSidedVec<T> {
     #[inline]
     fn drop(&mut self) {
-        unsafe { ManuallyDrop::drop(&mut self.as_raw_vec()) }
+        if !self.capacity.is_empty() {
+            let mut heap = Heap::default();
+            unsafe {
+                heap.dealloc_array(
+                    Unique::new_unchecked(self.alloc_start()),
+                    self.capacity.total()
+                ).unwrap_or_else(|err| heap.oom(err))
+            }
+        }
     }
 }
 #[derive(Copy, Clone, Debug)]
@@ -96,6 +107,10 @@ pub struct Capacity {
     pub front: usize
 }
 impl Capacity {
+    #[inline]
+    pub fn empty() -> Self {
+        Capacity { back: 0, front: 0 }
+    }
     #[inline]
     pub fn checked_total(&self) -> usize {
         self.back.checked_add(self.front).expect("Capacity overflow")
@@ -107,6 +122,14 @@ impl Capacity {
     #[inline]
     pub fn can_fit(&self, other: Capacity) -> bool {
         self.back >= other.back && self.front >= other.front
+    }
+    #[inline]
+    fn layout<T>(&self) -> Layout {
+        Layout::array::<T>(self.checked_total()).expect("Capacity overflow")
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.back == 0 && self.front == 0
     }
 }
 impl Add for Capacity {

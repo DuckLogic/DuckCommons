@@ -20,8 +20,7 @@ pub mod raw;
 /// Internally this allows a much simpler and faster implementation,
 /// since there's only a single pointer to the middle that grows up and down.
 /// Internally, we have to reallocate the buffer if we run out of capacity in either the
-/// negative or positive direction so we initially reserve half for the front and the back,
-/// although their capacities grow separately and
+/// negative or positive difes grow separately and
 /// Although bounds checks are _slightly_ slower since they involve two comparisons,
 /// the access itself should be just as fast.
 pub struct TwoSidedVec<T> {
@@ -146,11 +145,7 @@ impl<T> TwoSidedVec<T> {
     pub fn reserve_back(&mut self, amount: usize) {
         debug_assert!(self.check_sanity());
         if !self.can_fit_back(amount) {
-            let request = CapacityRequest {
-                used: Capacity { back: self.len_back(), front: self.len_front() },
-                needed: Capacity { front: 0, back: amount }
-            };
-            self.memory.reserve(request);
+            self.grow(0, amount);
         }
         debug_assert!(self.can_fit_back(amount))
     }
@@ -158,17 +153,21 @@ impl<T> TwoSidedVec<T> {
     pub fn reserve_front(&mut self, amount: usize) {
         debug_assert!(self.check_sanity());
         if !self.can_fit_front(amount) {
-            let request = CapacityRequest {
-                used: Capacity { back: self.len_back(), front: self.len_front() },
-                needed: Capacity { front: amount, back: 0 }
-            };
-            self.memory.reserve(request);
+            self.grow(amount, 0);
         }
         debug_assert!(
             self.can_fit_front(amount),
             "Insufficient capacity {:?} for {} additional elements. end_index = {}, start_index = {}, len = {}",
             self.memory.capacity(), amount, self.end_index, self.start_index, self.len()
         );
+    }
+    #[cold] #[inline(never)]
+    fn grow(&mut self, front: usize, back: usize) {
+        let request = CapacityRequest {
+            used: Capacity { back: self.len_back(), front: self.len_front() },
+            needed: Capacity { front, back }
+        };
+        self.memory.reserve(request);
     }
     #[inline]
     fn can_fit_front(&self, amount: usize) -> bool {
@@ -199,6 +198,10 @@ impl<T> TwoSidedVec<T> {
     pub fn len(&self) -> usize {
         debug_assert!(self.start_index <= self.end_index);
         self.end_index.wrapping_sub(self.start_index) as usize
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.start_index == self.end_index
     }
     /// Return the length of the back of the vector.
     #[inline]
@@ -598,3 +601,113 @@ impl<T, I: Iterator<Item=T>> Iterator for SignedEnumerate<I> {
 impl<I: iter::FusedIterator> iter::FusedIterator for SignedEnumerate<I> {}
 impl<I: iter::ExactSizeIterator> iter::ExactSizeIterator for SignedEnumerate<I> {}
 unsafe impl<I: iter::TrustedLen> iter::TrustedLen for SignedEnumerate<I> {}
+
+impl<T> From<Vec<T>> for TwoSidedVec<T> {
+    #[inline]
+    fn from(mut original: Vec<T>) -> Self {
+        let ptr = original.as_mut_ptr();
+        let capacity = original.capacity();
+        let len = original.len();
+        TwoSidedVec {
+            memory: unsafe { RawTwoSidedVec::from_raw_parts(
+                    ptr,
+                    Capacity { back: 0, front: capacity }
+            ) },
+            end_index: len as isize,
+            start_index: 0
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_push_front() {
+        let mut result = TwoSidedVec::new();
+        let expected = expected_front();
+        for &i in &expected {
+            result.push_front(i);
+        }
+        assert_expected(&result, vec![], expected);
+    }
+    #[test]
+    fn test_push_back() {
+        let mut result = TwoSidedVec::new();
+        let expected = expected_back();
+        for &i in &expected {
+            result.push_back(i);
+        }
+        assert_expected(&result, expected, vec![]);
+    }
+    #[test]
+    fn test_push() {
+        let mut result = TwoSidedVec::new();
+        let expected_back = expected_back();
+        let expected_front = expected_front();
+        for &i in &expected_back {
+            result.push_back(i);
+        }
+        for &i in &expected_front {
+            result.push_front(i);
+        }
+        assert_expected(&result, expected_back, expected_front);
+    }
+    #[test]
+    fn test_pop() {
+        let mut result = TwoSidedVec::new();
+        let mut expected_back = expected_back();
+        let mut expected_front = expected_front();
+        for &i in &expected_back {
+            result.push_back(i);
+        }
+        for &i in &expected_front {
+            result.push_front(i);
+        }
+        assert_expected(
+            &result,
+            expected_back.clone(),
+            expected_front.clone()
+        );
+        while let Some(expected) = expected_back.pop() {
+            assert_eq!(expected, result.pop_back().unwrap());
+        }
+        assert_eq!(result.len_back(), expected_back.len());
+        while let Some(expected) = expected_front.pop() {
+            assert_eq!(expected, result.pop_front().unwrap());
+        }
+        assert_eq!(result.len_front(), expected_front.len());
+        assert!(result.is_empty());
+    }
+    fn assert_expected<T: Debug + Eq + Clone>(
+        target: &TwoSidedVec<T>,
+        mut expected_back: Vec<T>,
+        expected_front: Vec<T>
+    ) {
+        expected_back.reverse();
+        let expected_start = -(expected_back.len() as isize);
+        let expected_end = expected_front.len() as isize;
+        assert_eq!(target.start(), expected_start);
+        assert_eq!(target.end(), expected_end);
+        assert_eq!(target.len(), expected_back.len() + expected_front.len());
+        assert_eq!(&target[..0], &*expected_back);
+        assert_eq!(&target[0..], &*expected_front);
+        for (index, expected) in expected_back.iter().rev().enumerate() {
+            assert_eq!(&target[-(index as isize) - 1], expected);
+        }
+        for (index, expected) in expected_front.iter().enumerate() {
+            assert_eq!(&target[(index as isize)], expected);
+        }
+        let entire_expected = expected_back.iter()
+            .chain(expected_front.iter())
+            .cloned()
+            .collect::<Vec<T>>();
+        assert_eq!(&target[..], &*entire_expected);
+    }
+    fn expected_back() -> Vec<i32> {
+        (0..30).map(|i| i * -2).collect()
+    }
+    fn expected_front() -> Vec<i32> {
+        (0..30).map(|i| i * 2).collect()
+    }
+}

@@ -8,7 +8,7 @@
     optin_builtin_traits, // This is much nicer than PhantomData
     attr_literals, // This seems to be needed for AutoError attributes
     specialization, // Needed for maybe_debug
-    alloc, // Needed for RawVec
+    alloc, allocator_api, // Needed for RawTwoSidedVec
     fused, // Faster iterators
     trusted_len, // Faster iterators
     shared, unique, pointer_methods, // Awesome pointer helpers
