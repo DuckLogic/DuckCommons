@@ -1,11 +1,13 @@
-use std::{mem, slice, ptr, cmp, iter};
+use std::{slice, ptr, iter};
 use std::fmt::{self, Formatter, Debug};
 use std::ops::{Index, Range, RangeFull, RangeFrom, RangeTo, IndexMut};
 
-use ptr::PointerExt;
-use alloc::raw_vec::RawVec;
 use serde::ser::{Serialize, Serializer, SerializeStruct};
 use serde::de::{Deserialize, Deserializer};
+
+use self::raw::{RawTwoSidedVec, Capacity, CapacityRequest};
+
+pub mod raw;
 
 /// A simple 'two sided' vector, that can grow both forwards and backwards.
 ///
@@ -22,50 +24,40 @@ use serde::de::{Deserialize, Deserializer};
 /// although their capacities grow separately and
 /// Although bounds checks are _slightly_ slower since they involve two comparisons,
 /// the access itself should be just as fast.
-// TODO: This needs to be refactored into a 'raw' two-sided vec
 pub struct TwoSidedVec<T> {
-    memory: RawVec<T>,
+    memory: RawTwoSidedVec<T>,
     start_index: isize,
-    middle: *mut T,
     end_index: isize,
 }
 impl<T> TwoSidedVec<T> {
     #[inline]
     pub fn new() -> Self {
         unsafe {
-            Self::from_raw(RawVec::new(), 0)
+            TwoSidedVec::from_raw(RawTwoSidedVec::new())
         }
     }
     #[inline]
     pub fn with_capacity(back: usize, front: usize) -> Self {
         unsafe {
-            Self::from_raw(RawVec::with_capacity(back + front), back)
+            TwoSidedVec::from_raw(RawTwoSidedVec::with_capacity(Capacity { back, front }))
         }
     }
     #[inline]
-    unsafe fn from_raw(raw: RawVec<T>, middle: usize) -> Self {
-        assert!(mem::size_of::<T>() > 0, "Zero sized type!");
-        debug_assert!(middle <= raw.cap());
-        let middle = raw.ptr().offset(middle as isize);
-        TwoSidedVec {
-            memory: raw,
-            middle,
-            start_index: 0,
-            end_index: 0
-        }
+    unsafe fn from_raw(memory: RawTwoSidedVec<T>) -> Self {
+        TwoSidedVec { memory, start_index: 0, end_index: 0 }
     }
     /// Take a slice of the front of this queue
     #[inline]
     pub fn front(&self) -> &[T] {
         unsafe {
-            slice::from_raw_parts(self.middle, self.len_front())
+            slice::from_raw_parts(self.middle_ptr(), self.len_front())
         }
     }
     /// Take a slice of the back of this queue
     #[inline]
     pub fn back(&self) -> &[T] {
         unsafe {
-            slice::from_raw_parts(self.raw_start(), self.len_back())
+            slice::from_raw_parts(self.start_ptr(), self.len_back())
         }
     }
     /// Take a mutable slice of the front of this queue
@@ -88,8 +80,8 @@ impl<T> TwoSidedVec<T> {
     pub fn split_mut(&mut self) -> (&mut [T], &mut [T]) {
         unsafe {
             (
-                slice::from_raw_parts_mut(self.raw_start(), self.len_back()),
-                slice::from_raw_parts_mut(self.middle, self.len_front())
+                slice::from_raw_parts_mut(self.start_ptr(), self.len_back()),
+                slice::from_raw_parts_mut(self.middle_ptr(), self.len_front())
             )
         }
     }
@@ -97,7 +89,7 @@ impl<T> TwoSidedVec<T> {
     pub fn push_front(&mut self, value: T) {
         self.reserve_front(1);
         unsafe {
-            ptr::write(self.raw_end(), value);
+            ptr::write(self.end_ptr(), value);
             self.end_index += 1;
         }
     }
@@ -106,7 +98,7 @@ impl<T> TwoSidedVec<T> {
         if self.end_index > 0 {
             self.end_index -= 1;
             unsafe {
-                Some(ptr::read(self.middle.offset(self.end_index)))
+                Some(ptr::read(self.end_ptr()))
             }
         } else {
             None
@@ -115,9 +107,9 @@ impl<T> TwoSidedVec<T> {
     #[inline]
     pub fn pop_back(&mut self) -> Option<T> {
         if self.start_index < 0 {
-            self.start_index -= 1;
+            self.start_index += 1;
             unsafe {
-                Some(ptr::read(self.middle.offset(self.start_index + 1)))
+                Some(ptr::read(self.middle_ptr().offset(self.start_index - 1)))
             }
         } else {
             None
@@ -132,7 +124,7 @@ impl<T> TwoSidedVec<T> {
     pub fn push_back(&mut self, value: T) {
         self.reserve_back(1);
         unsafe {
-            ptr::write(self.raw_start().offset(-1), value);
+            ptr::write(self.start_ptr().offset(-1), value);
             self.start_index -= 1;
         }
     }
@@ -152,115 +144,49 @@ impl<T> TwoSidedVec<T> {
     }
     #[inline]
     pub fn reserve_back(&mut self, amount: usize) {
-        let element_size = mem::size_of::<T>();
-        let byte_capacity = self.memory.ptr().byte_offset(self.middle) as usize;
-        /*
-         * Algebraically equivelant to `self.back_capacity() - self.len_back() <= amount`,
-         * while avoiding expensive division and allowing better constant folding.
-         * TODO: Handle overflow properly
-         */
-        if byte_capacity >= (amount + self.len_back()) * element_size {
-            self.grow(amount, 0);
+        debug_assert!(self.check_sanity());
+        if !self.can_fit_back(amount) {
+            let request = CapacityRequest {
+                used: Capacity { back: self.len_back(), front: self.len_front() },
+                needed: Capacity { front: 0, back: amount }
+            };
+            self.memory.reserve(request);
         }
-        debug_assert!(self.raw_start().wrapping_offset(-(amount as isize)) >= self.memory.ptr())
+        debug_assert!(self.can_fit_back(amount))
     }
     #[inline]
     pub fn reserve_front(&mut self, amount: usize) {
-        debug_assert!((self.end_index as usize) < self.memory.cap());
-        if amount <= self.memory.cap() - self.len_front() {
-            self.grow(0, amount);
+        debug_assert!(self.check_sanity());
+        if !self.can_fit_front(amount) {
+            let request = CapacityRequest {
+                used: Capacity { back: self.len_back(), front: self.len_front() },
+                needed: Capacity { front: amount, back: 0 }
+            };
+            self.memory.reserve(request);
         }
         debug_assert!(
-            self.raw_end().wrapping_offset(amount as isize) <=
-                unsafe { self.memory.ptr().offset(self.memory.cap() as isize) }
+            self.can_fit_front(amount),
+            "Insufficient capacity {:?} for {} additional elements. end_index = {}, start_index = {}, len = {}",
+            self.memory.capacity(), amount, self.end_index, self.start_index, self.len()
         );
     }
-    #[cold] #[inline(never)]
-    fn grow(&mut self, needed_back: usize, needed_front: usize) {
-        assert!(self.check_sanity()); // This is always the cold path, so check sanity
-        /*
-         * In order to avoid moving the memory around multiple times,
-         * we first attempt to reallocate in-place if we only need
-         * more elements for the front.
-         * If that fails or we need elements for the back,
-         * we're forced to allocate a completely new buffer and move the elements by hand.
-         */
-        let back_len = self.back().len();
-        let front_len = self.front().len();
-        let remaining_back = self.capacity_back() - back_len;
-        if needed_back <= remaining_back {
-            /*
-             * The 'used' capacity doesn't necessarily need to be initialized,
-             * so we include all the uninitialized back space as 'used',
-             * since we want to include that in the capacity calculations.
-             */
-            let used_capacity = self.capacity_back() + front_len;
-            if self.memory.reserve_in_place(used_capacity, needed_front) {
-                debug_assert!(self.capacity_back() - self.len_back() >= needed_back);
-                debug_assert!(self.capacity_front() - self.len_front() >= needed_front);
-                debug_assert!(self.check_sanity());
-                return;
-            }
-        }
-        /*
-         * Calculating the new capacity is significantly more complicated than a regular vector,
-         * since we have to avoid growing the back too much unnecessarily while still
-         * avoiding having to shift all the front elements just to expand the back of the vector.
-         * The heuristics are the maximum of the following rules:
-         *  - First, maintain the back capacity as a quarter of the front up to a max of 32.
-         *  - Even if no additional capacity was explicitly requested for the back,
-         *    we expand it to 1/8th of the front capacity as long as it's at least 1/4th in use.
-         *  - If additional capacity was explicitly requested for the back,
-         *    double the capacity unless the previous heuristics suggest more.
-         *  - As always, add the capacity we need for the back to the current length
-         */
-        let front_capacity = cmp::max(front_len + needed_front, self.capacity_front() * 2);
-        let back_capacity = {
-            let mut back_rules = vec![
-                back_len + needed_back,
-                cmp::min(32, front_capacity / 4)
-            ];
-            if needed_back > remaining_back {
-                back_rules.push(self.capacity_back() * 2);
-            }
-            if self.back().len() * 4 >= self.capacity_back() {
-                back_rules.push(front_capacity / 8);
-            }
-            back_rules.into_iter().max().unwrap()
-        };
-        assert!(back_capacity >= back_len + needed_back);
-        assert!(back_capacity <= isize::max_value() as usize);
-        assert!(front_capacity <= isize::max_value() as usize);
-        /*
-         * Since either in-place allocation failed or we need to expand the back,
-         * We need to completely reallocate a new vector than move the elements over.
-         */
-        let new_memory = RawVec::with_capacity(back_capacity + front_capacity);
-        assert!(self.memory.cap() >= self.len());
-        assert!(new_memory.cap() >= self.len());
-        unsafe {
-            let new_middle = new_memory.ptr().offset(back_capacity as isize);
-            let new_start = new_middle.offset(self.start_index);
-            assert!(new_middle.offset(self.end_index) <= new_middle.ptr().offset(new_memory.cap() as isize));
-            assert!(self.raw_end() <= self.memory.ptr().offset(self.memory.cap() as isize));
-            ptr::copy_nonoverlapping(self.raw_start(), new_start, self.len());
-            // Now that we've successfully copied perform the actual replacement
-            self.middle = new_middle;
-            self.memory = new_memory;
-        }
-        debug_assert!(self.capacity_back() - self.len_back() >= needed_back);
-        debug_assert!(self.capacity_front() - self.len_front() >= needed_front);
-        debug_assert!(self.check_sanity());
+    #[inline]
+    fn can_fit_front(&self, amount: usize) -> bool {
+        let remaining_front = self.capacity_front() - self.len_front();
+        remaining_front >= amount
+    }
+    #[inline]
+    fn can_fit_back(&self, amount: usize) -> bool {
+        let remaining_back = self.capacity_back() - self.len_back();
+        remaining_back >= amount
     }
     #[inline]
     pub fn capacity_back(&self) -> usize {
-        unsafe {
-            self.memory.ptr().unchecked_offset_to(self.middle) as usize
-        }
+        self.memory.capacity().back
     }
     #[inline]
     pub fn capacity_front(&self) -> usize {
-        self.memory.cap() - self.capacity_back()
+        self.memory.capacity().front
     }
     /// Return the length of the entire vector, which is the sum of the
     /// lengths of the front and back parts.
@@ -268,7 +194,7 @@ impl<T> TwoSidedVec<T> {
     /// The **length isn't where the vector ends**,
     /// since it could have elements in the back with negative indexes.
     /// Use `vec.start()` and `vec.end()` if you want to know the start and end indexes.
-    /// The total length is exactly equivelant to `vec.len_back() + vec.len_front()`
+    /// The total length is exactly equivalent to `vec.len_back() + vec.len_front()`
     #[inline]
     pub fn len(&self) -> usize {
         debug_assert!(self.start_index <= self.end_index);
@@ -298,7 +224,7 @@ impl<T> TwoSidedVec<T> {
     /// Give the (exclusive) end of the queue's elements,
     /// which may be less than the length if the queue's back contains some elements.
     ///
-    /// This is exactly equivelant to `vec.front().len()`
+    /// This is exactly equivalent to `vec.front().len()`
     #[inline]
     pub fn end(&self) -> isize {
         self.end_index
@@ -332,45 +258,31 @@ impl<T> TwoSidedVec<T> {
     }
     /// Give a raw pointer to the start of the elements
     #[inline]
-    pub fn raw_start(&self) -> *mut T {
+    pub fn start_ptr(&self) -> *mut T {
         unsafe {
-            self.middle.offset(self.start_index)
+            self.middle_ptr().offset(self.start_index)
         }
     }
     /// Give a raw pointer to the middle of the elements
     #[inline]
-    pub fn raw_middle(&self) -> *mut T {
-        self.middle
+    pub fn middle_ptr(&self) -> *mut T {
+        self.memory.middle()
     }
     #[inline]
-    pub fn raw_end(&self) -> *mut T {
+    pub fn end_ptr(&self) -> *mut T {
         unsafe {
-            self.middle.offset(self.end_index)
+            self.middle_ptr().offset(self.end_index)
         }
     }
     #[inline]
     pub fn split_at(&self, index: isize) -> (&[T], &[T]) {
-        assert!(index >= self.start_index && index < self.end_index);
-        unsafe {
-            let first_length = (index - self.start_index) as usize;
-            let second_length = (self.end_index - index) as usize;
-            let split = self.middle.offset(index);
-            (
-                slice::from_raw_parts(
-                    split.offset(-(first_length as isize)),
-                    first_length
-                ),
-                slice::from_raw_parts(split, second_length)
-            )
-        }
+        (&self[..index], &self[index..])
     }
     fn check_sanity(&self) -> bool {
         assert!(self.start_index <= 0 && self.end_index >= 0);
-        assert!(self.raw_end() < unsafe { self.memory.ptr().offset(self.memory.cap() as isize) });
-        assert!(self.raw_start() >= self.memory.ptr());
         // These should be implied by the other checks
-        debug_assert!(self.raw_start() <= self.middle);
-        debug_assert!(self.raw_end() >= self.middle);
+        debug_assert!(self.start_ptr() <= self.middle_ptr());
+        debug_assert!(self.end_ptr() >= self.middle_ptr());
         true
     }
     pub fn clear(&mut self) {
@@ -510,12 +422,12 @@ impl<T> TwoSidedIndex<T> for isize {
     #[inline]
     unsafe fn get_unchecked(self, target: &TwoSidedVec<T>) -> &Self::Output {
         debug_assert!(self.check(target));
-        &*target.middle.offset(self)
+        &*target.middle_ptr().offset(self)
     }
 
     #[inline]
     unsafe fn get_unchecked_mut(self, target: &mut TwoSidedVec<T>) -> &mut Self::Output {
-        &mut *target.middle.offset(self)
+        &mut *target.middle_ptr().offset(self)
     }
 
     #[inline]
@@ -529,16 +441,16 @@ impl<T> TwoSidedIndex<T> for Range<isize> {
     #[inline]
     unsafe fn get_unchecked(self, target: &TwoSidedVec<T>) -> &Self::Output {
         slice::from_raw_parts(
-            target.middle.offset(self.start),
-            target.len()
+            target.middle_ptr().offset(self.start),
+            (self.end - self.start) as usize
         )
     }
 
     #[inline]
     unsafe fn get_unchecked_mut(self, target: &mut TwoSidedVec<T>) -> &mut Self::Output {
         slice::from_raw_parts_mut(
-            target.middle.offset(self.start),
-            target.len()
+            target.middle_ptr().offset(self.start),
+            (self.end - self.start) as usize
         )
     }
 
@@ -546,7 +458,7 @@ impl<T> TwoSidedIndex<T> for Range<isize> {
     fn check(&self, target: &TwoSidedVec<T>) -> bool {
         self.start >= target.start_index
             && self.start <= self.end
-            && self.end < target.end_index
+            && self.end <= target.end_index
     }
 }
 
@@ -556,7 +468,7 @@ impl<T> TwoSidedIndex<T> for RangeFull {
     #[inline]
     unsafe fn get_unchecked(self, target: &TwoSidedVec<T>) -> &Self::Output {
         slice::from_raw_parts(
-            target.middle.offset(target.start_index),
+            target.middle_ptr().offset(target.start_index),
             target.len()
         )
     }
@@ -564,7 +476,7 @@ impl<T> TwoSidedIndex<T> for RangeFull {
     #[inline]
     unsafe fn get_unchecked_mut(self, target: &mut TwoSidedVec<T>) -> &mut Self::Output {
         slice::from_raw_parts_mut(
-            target.middle.offset(target.start_index),
+            target.middle_ptr().offset(target.start_index),
             target.len()
         )
     }
@@ -580,7 +492,7 @@ impl<T> TwoSidedIndex<T> for RangeFrom<isize> {
     #[inline]
     unsafe fn get_unchecked(self, target: &TwoSidedVec<T>) -> &Self::Output {
         slice::from_raw_parts(
-            target.middle.offset(self.start),
+            target.middle_ptr().offset(self.start),
             (target.end_index - self.start) as usize
         )
     }
@@ -588,7 +500,7 @@ impl<T> TwoSidedIndex<T> for RangeFrom<isize> {
     #[inline]
     unsafe fn get_unchecked_mut(self, target: &mut TwoSidedVec<T>) -> &mut Self::Output {
         slice::from_raw_parts_mut(
-            target.middle.offset(self.start),
+            target.middle_ptr().offset(self.start),
             (target.end_index - self.start) as usize
         )
     }
@@ -604,7 +516,7 @@ impl<T> TwoSidedIndex<T> for RangeTo<isize> {
     #[inline]
     unsafe fn get_unchecked(self, target: &TwoSidedVec<T>) -> &Self::Output {
         slice::from_raw_parts(
-            target.middle.offset(target.start_index),
+            target.middle_ptr().offset(target.start_index),
             (self.end - target.start_index) as usize
         )
     }
@@ -612,7 +524,7 @@ impl<T> TwoSidedIndex<T> for RangeTo<isize> {
     #[inline]
     unsafe fn get_unchecked_mut(self, target: &mut TwoSidedVec<T>) -> &mut Self::Output {
         slice::from_raw_parts_mut(
-            target.middle.offset(target.start_index),
+            target.middle_ptr().offset(target.start_index),
             (self.end - target.start_index) as usize
         )
     }

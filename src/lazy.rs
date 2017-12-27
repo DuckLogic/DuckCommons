@@ -2,6 +2,7 @@ use std::{ptr, mem, intrinsics};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::fmt::{self, Formatter, Debug};
+use std::hash::{Hash, Hasher};
 
 use parking_lot::Once;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -278,5 +279,18 @@ impl<T> From<T> for Lazy<T> {
     #[inline]
     fn from(value: T) -> Self {
         Lazy::new(value)
+    }
+}
+impl<T: PartialEq> PartialEq for Lazy<T> {
+    #[inline]
+    fn eq(&self, other: &Lazy<T>) -> bool {
+        self.get() == other.get()
+    }
+}
+impl<T: Eq> Eq for Lazy<T> {}
+impl<T: Hash> Hash for Lazy<T> {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.get().hash(state)
     }
 }

@@ -11,7 +11,7 @@
     alloc, // Needed for RawVec
     fused, // Faster iterators
     trusted_len, // Faster iterators
-    shared, // Shared is awesome
+    shared, unique, pointer_methods, // Awesome pointer helpers
     core_intrinsics, // I like microoptimization and undefined behavior
 )]
 extern crate petgraph;
