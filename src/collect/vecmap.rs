@@ -102,6 +102,10 @@ impl<K: Ord, V> VecMap<K, V> {
         self.0.binary_search_by_key(&key, |&(ref key, _)| key)
     }
     #[inline]
+    pub fn capacity(&self) -> usize {
+        self.0.capacity()
+    }
+    #[inline]
     pub fn len(&self) -> usize {
         self.0.len()
     }
