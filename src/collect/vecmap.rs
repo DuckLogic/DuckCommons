@@ -30,6 +30,23 @@ impl<K: Ord, V> VecMap<K, V> {
     pub fn with_capacity(capacity: usize) -> Self {
         VecMap(Vec::with_capacity(capacity))
     }
+    pub fn from_vector(mut target: Vec<(K, V)>, allow_duplicates: bool) -> Self {
+        target.sort_by(|&(ref first_key, _), &(ref second_key, _)| first_key.cmp(second_key));
+        if !allow_duplicates {
+            match ::collect::find_duplicates_by(&target, |&(ref first_key, _), &(ref second_key, _)| first_key == second_key) {
+                Some(((_, &(ref key, ref first)), (_, &(_, ref second)))) => {
+                    panic!(
+                        "Duplicate entries for {:?}: {:?} and {:?}",
+                        maybe_debug!(key), maybe_debug!(first), maybe_debug!(second)
+                    )
+                },
+                None => {}
+            }
+        } else {
+            target.dedup_by(|&mut (ref first_key, _), &mut (ref second_key, _)| first_key == second_key);
+        }
+        VecMap(target)
+    }
     /// Inserts a key-value pair into the map.
     ///
     /// Returns the previous value of the key,

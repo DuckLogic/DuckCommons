@@ -86,3 +86,25 @@ pub fn insertion_sort_by_key<T, B, F>(target: &mut [T], mut func: F) where B: Or
     insertion_sort_by(target, |first, second| func(first).cmp(&func(second)))
 }
 
+
+#[inline]
+pub fn find_duplicates<T: PartialEq, F>(target: &[T]) -> Option<((usize, &T), (usize, &T))> {
+    find_duplicates_by(target, |first, second| first == second)
+}
+
+#[inline]
+pub fn find_duplicates_by_key<T, B, F>(target: &[T], mut func: F) -> Option<((usize, &T), (usize, &T))>
+    where B: PartialEq, F: FnMut(&T) -> B {
+    find_duplicates_by(target, |first, second| func(first) == func(second))
+}
+
+#[inline]
+pub fn find_duplicates_by<T, F>(target: &[T], mut same_bucket: F) -> Option<((usize, &T), (usize, &T))>
+    where F: FnMut(&T, &T) -> bool {
+    for ((prev_index, prev), (index, element)) in target.iter().enumerate().tuple_windows() {
+        if same_bucket(prev, element) {
+            return Some(((prev_index, prev), (index, element)))
+        }
+    }
+    None
+}
