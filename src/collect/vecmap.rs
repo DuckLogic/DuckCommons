@@ -64,7 +64,6 @@ impl<K: Ord, V> VecMap<K, V> {
     pub fn get(&self, key: &K) -> Option<&V> {
         self.find(key).map(|index| &self.0[index].1)
     }
-
     /// Lookup the value associated with the specified key in `O(log n)` time.
     #[inline]
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
@@ -72,6 +71,11 @@ impl<K: Ord, V> VecMap<K, V> {
             Some(index) => Some(&mut self.0[index].1),
             None => None
         }
+    }
+    /// Drain the entire VecMap
+    #[inline]
+    pub fn drain(&mut self) -> ::std::vec::Drain<(K, V)> {
+        self.0.drain(..)
     }
     #[inline]
     pub fn iter(&self) -> Iter<K, V> {
@@ -176,5 +180,25 @@ unsafe impl<'a, K: Ord + 'a, V: 'a> iter::TrustedLen for Values<'a, K, V> {}
 impl<K: Ord + Debug, V: Debug> Debug for VecMap<K, V> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         f.debug_map().entries(self.iter()).finish()
+    }
+}
+
+impl<K: Ord, V> IntoIterator for VecMap<K, V> {
+    type Item = (K, V);
+    type IntoIter = ::std::vec::IntoIter<(K, V)>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<'a, K: Ord + 'a, V: 'a> IntoIterator for &'a VecMap<K, V> {
+    type Item = (&'a K, &'a V);
+    type IntoIter = Iter<'a, K, V>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
