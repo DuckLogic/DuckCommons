@@ -598,6 +598,18 @@ impl<T, I: Iterator<Item=T>> Iterator for SignedEnumerate<I> {
         }
     }
 }
+impl<I> iter::DoubleEndedIterator for SignedEnumerate<I>
+    where I: iter::DoubleEndedIterator + iter::ExactSizeIterator {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.handle.next_back().map(|value| {
+            let len = self.handle.len();
+            // I'm going to pretend this is the caller's responsibility
+            debug_assert!(len <= isize::max_value() as usize);
+            (self.index + (len as isize), value)
+        })
+    }
+}
 impl<I: iter::FusedIterator> iter::FusedIterator for SignedEnumerate<I> {}
 impl<I: iter::ExactSizeIterator> iter::ExactSizeIterator for SignedEnumerate<I> {}
 unsafe impl<I: iter::TrustedLen> iter::TrustedLen for SignedEnumerate<I> {}
