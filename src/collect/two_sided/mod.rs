@@ -1,6 +1,7 @@
 use std::{slice, ptr, iter};
 use std::fmt::{self, Formatter, Debug};
 use std::ops::{Index, Range, RangeFull, RangeFrom, RangeTo, IndexMut};
+use std::hash::{Hash, Hasher};
 
 use serde::ser::{Serialize, Serializer, SerializeStruct};
 use serde::de::{Deserialize, Deserializer};
@@ -628,6 +629,38 @@ impl<T> From<Vec<T>> for TwoSidedVec<T> {
             end_index: len as isize,
             start_index: 0
         }
+    }
+}
+impl<T: PartialEq<U>, U> PartialEq<TwoSidedVec<U>> for TwoSidedVec<T> {
+    fn eq(&self, other: &TwoSidedVec<U>) -> bool {
+        if self.start() == other.start() && self.end() == other.end() {
+            for (first, second) in self.back().iter().zip(other.back()) {
+                if first != second {
+                    return false
+                }
+            }
+            for (first, second) in self.front().iter().zip(other.front()) {
+                if first != second {
+                    return false
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+}
+impl<T: Eq> Eq for TwoSidedVec<T> {}
+impl<T: Hash> Hash for TwoSidedVec<T> {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        /*
+         * NOTE: We also need to take their start into account,
+         * since otherwise [; 1, 2, 3] and [1 ; 2, 3] would hash the same.
+         */
+        state.write_isize(self.start());
+        T::hash_slice(self.back(), state);
+        T::hash_slice(self.front(), state);
     }
 }
 
