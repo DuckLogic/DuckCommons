@@ -236,8 +236,8 @@ impl<T> TwoSidedVec<T> {
     /// Return the `[start, end)` range of the element indices,
     /// equivalent to a tuple of `(queue.start(), queue.end())`.
     #[inline]
-    pub fn range(&self) -> (isize, isize) {
-        (self.start_index, self.end_index)
+    pub fn range(&self) -> Range<isize> {
+        self.start_index..self.end_index
     }
     /// Iterate over the entire vector, including both the back and front.
     #[inline]
