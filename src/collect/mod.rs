@@ -3,17 +3,15 @@ use std::cmp::Ordering;
 use std::hash::BuildHasherDefault;
 
 use itertools::Itertools;
-use ordermap::OrderMap;
+use ordermap::{OrderSet, OrderMap};
 use seahash::SeaHasher;
 
-pub mod orderset;
 pub mod bitset;
 pub mod two_sided;
 pub mod vecmap;
 pub mod vecset;
 pub mod bulk;
 
-pub use self::orderset::OrderSet;
 pub use self::bitset::SmallBitSet;
 pub use self::two_sided::TwoSidedVec;
 pub use self::vecmap::VecMap;
