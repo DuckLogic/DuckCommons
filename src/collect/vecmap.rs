@@ -134,6 +134,10 @@ impl<K: Ord, V> VecMap<K, V> {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+    #[inline]
+    pub fn clear(&mut self) {
+        self.0.clear()
+    }
 }
 /// Extend the map with the entries from the specified iterator.
 impl<K: Ord, V> Extend<(K, V)> for VecMap<K, V> {
