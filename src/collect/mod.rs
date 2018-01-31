@@ -11,6 +11,7 @@ pub mod two_sided;
 pub mod vecmap;
 pub mod vecset;
 pub mod bulk;
+pub mod compare;
 
 pub use self::bitset::SmallBitSet;
 pub use self::two_sided::TwoSidedVec;

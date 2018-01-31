@@ -13,6 +13,7 @@
     trusted_len, // Faster iterators
     shared, unique, pointer_methods, // Awesome pointer helpers
     core_intrinsics, // I like microoptimization and undefined behavior
+    type_ascription, // Type ascription is awesome
 )]
 extern crate petgraph;
 extern crate smallvec;
@@ -35,6 +36,7 @@ extern crate bincode;
 #[cfg(feature="lz4")]
 extern crate lz4;
 extern crate itertools;
+extern crate stdsimd;
 
 use std::fmt::{Debug};
 use std::error::Error;
