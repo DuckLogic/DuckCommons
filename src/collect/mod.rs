@@ -13,6 +13,7 @@ pub mod vecset;
 pub mod bulk;
 pub mod compare;
 
+pub use self::compare::SliceCompare;
 pub use self::bitset::SmallBitSet;
 pub use self::two_sided::TwoSidedVec;
 pub use self::vecmap::VecMap;
