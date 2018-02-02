@@ -37,6 +37,7 @@ extern crate bincode;
 extern crate lz4;
 extern crate itertools;
 extern crate stdsimd;
+extern crate fixedbitset;
 
 use std::fmt::{Debug};
 use std::error::Error;

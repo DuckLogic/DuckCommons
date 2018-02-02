@@ -6,6 +6,8 @@ use itertools::Itertools;
 use ordermap::{OrderSet, OrderMap};
 use seahash::SeaHasher;
 
+#[macro_use]
+pub mod macros;
 pub mod bitset;
 pub mod two_sided;
 pub mod vecmap;
