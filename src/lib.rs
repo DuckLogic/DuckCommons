@@ -71,7 +71,7 @@ pub mod ptr;
 pub use self::lazy::{AtomicLazy, Lazy};
 pub use self::collect::{
     TwoSidedVec, SmallBitSet, SeaHashOrderMap, SliceCompare,
-    SeaHashOrderSet, VecMap, VecSet, SliceCompare
+    SeaHashOrderSet, VecMap, VecSet
 };
 
 #[inline]
