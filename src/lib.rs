@@ -14,6 +14,11 @@
     shared, unique, pointer_methods, // Awesome pointer helpers
     core_intrinsics, // I like microoptimization and undefined behavior
     type_ascription, // Type ascription is awesome
+    unboxed_closures, // Apparently you can only manually implement closures on nightly -_-
+    fn_traits, // I guess `FnMut` is also an unstable trait?
+    never_type, // The never type is awesome
+    pattern, // We use the pattern API for parsing
+    str_escape, // I think this is used for printing?
 )]
 extern crate petgraph;
 extern crate smallvec;
@@ -38,6 +43,14 @@ extern crate lz4;
 extern crate itertools;
 extern crate stdsimd;
 extern crate fixedbitset;
+extern crate regex;
+#[macro_use]
+extern crate lazy_static;
+#[macro_use]
+extern crate log;
+extern crate memchr;
+#[macro_use]
+extern crate failure;
 
 use std::fmt::{Debug};
 use std::error::Error;
@@ -68,6 +81,7 @@ pub mod indexed_arena;
 pub mod lazy;
 pub mod serialize;
 pub mod ptr;
+pub mod parse;
 
 pub use self::lazy::{AtomicLazy, Lazy};
 pub use self::collect::{
