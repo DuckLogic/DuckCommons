@@ -7,6 +7,8 @@ use std::fmt::{self, Display, Formatter, Debug};
 use std::str::pattern::Pattern;
 use std::str::FromStr;
 use std::borrow::Borrow;
+use std::ops::Deref;
+use std::rc::Rc;
 
 use smallvec::SmallVec;
 use regex::Regex;
@@ -1050,4 +1052,95 @@ pub enum HexadecimalParseError {
         index: usize,
         amount: usize
     }
+}
+
+
+#[derive(Eq, PartialEq, Clone)]
+pub struct Ident(Rc<str>);
+impl Ident {
+    #[inline]
+    pub fn new<T: Into<Rc<str>>>(text: T) -> Ident {
+        Ident::parse(text.into()).unwrap()
+    }
+    pub fn parse<T: Into<Rc<str>>>(text: T) -> Result<Ident, InvalidIdentError> {
+        let text = text.into();
+        match Ident::parse_str(&text) {
+            Ok(result) => Ok(result),
+            Err(StringParseError::InvalidValue { cause, .. }) => Err(cause),
+            Err(StringParseError::UnexpectedTrailing { index }) => {
+                Err(InvalidIdentError::InvalidChar {
+                    index,
+                    invalid: text[index..].chars().next().unwrap()
+                })
+            }
+        }
+    }
+}
+impl Debug for Ident {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.debug_tuple("Ident")
+            .field(&format_args!("{}", self.0))
+            .finish()
+    }
+}
+impl Display for Ident {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.write_str(&**self)
+    }
+}
+impl AsRef<str> for Ident {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+impl Deref for Ident {
+    type Target = str;
+
+    #[inline]
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+impl<'a> SimpleParse<'a> for Ident {
+    type Err = InvalidIdentError;
+
+    fn parse(parser: &mut SimpleParser<'a>) -> Result<Self, Self::Err> {
+        let mut result = String::new();
+        if parser.peek().filter(|first| first.is_ascii_alphabetic()).is_some() {
+            parser.pop();
+            result.push(parser.pop() as char);
+            if let Some(taken) = parser.take_only_ascii(|b: u8| b.is_ascii_alphanumeric()) {
+                result.push_str(taken);
+            }
+            if let Some(next) = parser.remaining().chars().next()
+                .filter(|b| !b.is_ascii_whitespace()) {
+                Err(InvalidIdentError::InvalidChar {
+                    index: parser.current_index(),
+                    invalid: next
+                })
+            } else {
+                Ok(Ident(Rc::from(result)))
+            }
+        } else {
+            Err(InvalidIdentError::InvalidChar {
+                index: parser.current_index(),
+                invalid: ' '.to_owned()
+            })
+        }
+    }
+}
+
+#[derive(Debug, Fail, SimpleParseError)]
+pub enum InvalidIdentError {
+    #[fail(display = "Empty identifier")]
+    Empty {
+        index: usize
+    },
+    #[fail(display = "Invalid character: {:?}", invalid)]
+    InvalidChar {
+        index: usize,
+        invalid: char,
+    },
 }

@@ -79,7 +79,6 @@ impl<'a, T: 'a> BulkShifter<'a, T> {
          * Since we need to allow overlapping copies,
          * we check if the `start` overlaps with the elements instead of the original `len`.
          * We need to be safe in the face of overflow,
-
          */
         assert!(
             self.shifted_start >= moved_memory
