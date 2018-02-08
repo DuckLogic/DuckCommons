@@ -52,6 +52,10 @@ extern crate log;
 extern crate memchr;
 #[macro_use]
 extern crate failure;
+// We declare a fake `duckcommons` macro so the macros resolve `duckcommons` -_-
+mod duckcommons {
+    pub use super::*;
+}
 
 use std::fmt::{Debug};
 use std::error::Error;

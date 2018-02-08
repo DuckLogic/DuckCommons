@@ -336,14 +336,14 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
                     _ => panic!("index field for {}::{} must be a usize or Option<usize>")
                 };
                 if cause.is_some() {
-                    cause_cases.push(quote!(#error_name::#name { ref cause, .. } => ::parse::_cast_parse_error(cause)));
+                    cause_cases.push(quote!(#error_name::#name { ref cause, .. } => ::duckcommons::parse::_cast_parse_error(cause)));
                 } else {
                     cause_cases.push(quote!(#error_name::#name { .. } => None));
                 }
                 if let Some(cause) = cause {
                     if variant.data.fields().len() == 2 {
                         from_implementations.push(quote! {
-                            impl  #impl_generics  ::parse::FromParseError<#cause> for #error_name #ty_generics #where_clause {
+                            impl  #impl_generics ::duckcommons::parse::FromParseError<#cause> for #error_name #ty_generics #where_clause {
                                 #[inline]
                                 fn from_cause(index: usize, cause: #cause) -> Self {
                                     #error_name::#name { index, cause }
@@ -368,11 +368,11 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
                 if !optional_index {
                     index_cases.push(quote!(#error_name::#name { index, .. } => index));
                 } else {
-                    index_cases.push(quote!(#error_name::#name { index, .. } => index.unwrap_or_else(|| ::parse::_missing_index(self))))
+                    index_cases.push(quote!(#error_name::#name { index, .. } => index.unwrap_or_else(|| ::duckcommons::parse::_missing_index(self))))
                 }
             }
             quote! {
-                impl #impl_generics ::parse::SimpleParseError for #error_name #ty_generics #where_clause {
+                impl #impl_generics ::duckcommons::parse::SimpleParseError for #error_name #ty_generics #where_clause {
                     #[inline]
                     fn index(&self) -> usize {
                         match *self {
@@ -389,7 +389,7 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
                         }
                     }
                     #[inline]
-                    fn parse_cause(&self) -> Option<&::parse::SimpleParseError> {
+                    fn parse_cause(&self) -> Option<&::duckcommons::parse::SimpleParseError> {
                         match *self {
                             #(#cause_cases),*
                         }
@@ -403,7 +403,7 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
 
             let delegate_type = &fields[0];
             quote! {
-                impl #impl_generics ::parse::SimpleParseError for #error_name #ty_generics #where_clause {
+                impl #impl_generics ::duckcommons::parse::SimpleParseError for #error_name #ty_generics #where_clause {
                     #[inline]
                     fn index(&self) -> usize {
                         self.0.index()
@@ -413,7 +413,7 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
                         self.0.offset(offset);
                     }
                     #[inline]
-                    fn parse_cause(&self) -> Option<&::parse::SimpleParseError> {
+                    fn parse_cause(&self) -> Option<&::duckcommons::parse::SimpleParseError> {
                         self.0.parse_cause()
                     }
                 }
@@ -424,7 +424,7 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
                 .map(|field| &field.ty);
             let give_cause = if cause.is_some() { quote! { Some(&self.cause) } } else { quote!(None) };
             quote! {
-                impl #impl_generics ::parse::SimpleParseError for #error_name #ty_generics #where_clause {
+                impl #impl_generics ::duckcommons::parse::SimpleParseError for #error_name #ty_generics #where_clause {
                     #[inline]
                     fn index(&self) -> usize {
                         self.index
@@ -436,7 +436,7 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
                         self.index = result as usize;
                     }
                     #[inline]
-                    fn parse_cause(&self) -> Option<&::parse::SimpleParseError> {
+                    fn parse_cause(&self) -> Option<&::duckcommons::parse::SimpleParseError> {
                         #give_cause
                     }
                 }
