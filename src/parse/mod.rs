@@ -1072,7 +1072,7 @@ pub enum HexadecimalParseError {
 }
 
 
-#[derive(Eq, PartialEq, Clone)]
+#[derive(Eq, PartialEq, Hash, Clone)]
 pub struct Ident(Arc<str>);
 impl Ident {
     #[inline]
