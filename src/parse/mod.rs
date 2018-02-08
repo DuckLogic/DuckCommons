@@ -64,12 +64,14 @@ pub struct Spanned<T>(pub Span, pub T);
 /// A token that has been produced by a lexer, and is usable with a `TokenStream`
 pub trait Token: Debug + Clone + PartialEq + From<Symbol> {
     type Err: SimpleParseError + Sized;
-    /// If the token's an ASCII symbol, return its value
+    /// If the token is an ASCII symbol, return its value
     fn symbol(&self) -> Option<Symbol>;
+    /// If the token is an identifier, return its value
+    fn identifier(&self) -> Option<&Ident>;
     /// Determine if this token is whitespace.
     ///
-    /// This is useful for whitespace-signifigant where whitespace
-    /// is permitted in meaningful in some contexts but not others.
+    /// This is useful for whitespace-significant languages where whitespace
+    /// is permitted and meaningful in some contexts but not others.
     #[inline]
     fn is_whitespace(&self) -> bool {
         false
@@ -172,6 +174,14 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
     pub fn remaining_tokens(&self) -> usize {
         self.tokens.len() - self.token_index
     }
+    /// Creates an error that indicates the next token is unexpected.
+    ///
+    /// Exactly equivalent to invoking `stream.unexpected().unwrap_err()`
+    #[inline]
+    pub fn unexpected_err(&self) -> T::Err where T::Err: UnexpectedParseError<T> {
+        let Err(error) = self.unexpected();
+        error
+    }
     /// Indicates that the next token is unexpected,
     /// as if by invoking `unexpected(stream.current_index(), None, stream.peek())`
     /// However, if it's the end of stream, it returns an unexpected end error instead.
@@ -227,6 +237,13 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
             }
         }
         self.expected_any(expected)?
+    }
+    #[inline]
+    pub fn expect_identifier(&self) -> Result<&'a Ident, T::Err>
+        where T::Err: UnexpectedParseError<T> {
+        self.peek()
+            .and_then(|token| token.identifier())
+            .ok_or_else(|| self.unexpected_err())
     }
     /// Skip all whitespace tokens, as determined by `Token::is_whitespace`
     #[inline]
