@@ -6,9 +6,9 @@ use std::num::{ParseIntError};
 use std::fmt::{self, Display, Formatter, Debug};
 use std::str::pattern::Pattern;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::borrow::Borrow;
 use std::ops::Deref;
-use std::rc::Rc;
 
 use smallvec::SmallVec;
 use regex::Regex;
@@ -62,7 +62,7 @@ impl Span {
 pub struct Spanned<T>(pub Span, pub T);
 
 /// A token that has been produced by a lexer, and is usable with a `TokenStream`
-pub trait Token: Debug + Clone + PartialEq + From<Symbol> {
+pub trait Token: Debug + Clone + PartialEq + From<Symbol> + Send + Sync {
     type Err: SimpleParseError + Sized;
     /// If the token is an ASCII symbol, return its value
     fn symbol(&self) -> Option<Symbol>;
@@ -1073,13 +1073,13 @@ pub enum HexadecimalParseError {
 
 
 #[derive(Eq, PartialEq, Clone)]
-pub struct Ident(Rc<str>);
+pub struct Ident(Arc<str>);
 impl Ident {
     #[inline]
-    pub fn new<T: Into<Rc<str>>>(text: T) -> Ident {
+    pub fn new<T: Into<Arc<str>>>(text: T) -> Ident {
         Ident::parse(text.into()).unwrap()
     }
-    pub fn parse<T: Into<Rc<str>>>(text: T) -> Result<Ident, InvalidIdentError> {
+    pub fn parse<T: Into<Arc<str>>>(text: T) -> Result<Ident, InvalidIdentError> {
         let text = text.into();
         match Ident::parse_str(&text) {
             Ok(result) => Ok(result),
@@ -1138,7 +1138,7 @@ impl<'a> SimpleParse<'a> for Ident {
                     invalid: next
                 })
             } else {
-                Ok(Ident(Rc::from(result)))
+                Ok(Ident(Arc::from(result)))
             }
         } else {
             Err(InvalidIdentError::InvalidChar {
