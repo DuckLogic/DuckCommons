@@ -198,6 +198,10 @@ impl<T> Lazy<T> {
         self.initialize(loader())
     }
     #[inline]
+    pub fn get_mut(&mut self) -> Option<&mut T> {
+        self.value.get_mut().as_mut()
+    }
+    #[inline]
     pub fn into_inner(self) -> Option<T> {
         self.value.into_inner()
     }
