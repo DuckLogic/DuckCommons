@@ -401,7 +401,8 @@ pub trait FromParseError<T>: SimpleParseError {
 }
 impl<T: SimpleParseError> FromParseError<T> for T {
     #[inline]
-    fn from_cause(_: usize, cause: T) -> Self {
+    fn from_cause(index: usize, mut cause: T) -> Self {
+        cause.offset(index as isize);
         cause
     }
 }
