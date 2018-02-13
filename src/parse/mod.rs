@@ -1,7 +1,7 @@
 //! Utilities for parsing text centered around the `SimpleParse` and `SimpleParseError` traits,
 //! and using a `SimpleParser` utility for handling the current position.
 
-use std::slice;
+use std::{slice, mem};
 use std::num::{ParseIntError};
 use std::fmt::{self, Display, Formatter, Debug};
 use std::str::pattern::Pattern;
@@ -556,7 +556,8 @@ impl<'a> SimpleParser<'a> {
     /// Take a single non-empty ascii word from the input, as if using the regex `[\w]+`
     #[inline]
     pub fn take_word(&mut self) -> Option<&'a str> {
-        self.take_only_ascii(|b: u8| b == b'_' || b.is_ascii_alphanumeric())
+        let result = self.take_only_ascii(|b: u8| b == b'_' || b.is_ascii_alphanumeric());
+        if result.is_empty() { None } else { Some(result) }
     }
     /// Take everything until the ending of the specified start token,
     /// allowing arbitrary nesting and returning an `Err` if unmatched.
@@ -618,17 +619,16 @@ impl<'a> SimpleParser<'a> {
     ///
     /// This is slightly slower than `take_until`, though it's still much faster than `take_while`.
     #[inline]
-    pub fn take_only_ascii<P: AsciiPattern>(&mut self, mut pattern: P) -> Option<&'a str> {
+    pub fn take_only_ascii<P: AsciiPattern>(&mut self, mut pattern: P) -> &'a str {
         // NOTE: We invert the predicate since we want to split where the predicate fails
         if let Some((result, remaining)) = ascii::split_ascii(
             self.remaining,
             |b| !pattern.apply(b)) {
-            if !result.is_empty() {
-                self.remaining = remaining;
-                return Some(result);
-            }
+            self.remaining = remaining;
+            result
+        } else {
+            mem::replace(&mut self.remaining, "")
         }
-        None
     }
     /// Take all the characters that match the specified predicate, or None if no characters match.
     ///
@@ -853,7 +853,8 @@ impl<'a> SimpleParse<'a> for NumericLiteral {
             },
             _ => true
         };
-        let integral = parser.take_only_ascii(|b: u8| b.is_ascii_digit()).unwrap_or("");
+        // Now that I know calculus, this feels kind of strange.......
+        let integral = parser.take_only_ascii(|b: u8| b.is_ascii_digit());
         /*
          * Peek at the next character to determine if it's a float or just an integer.
          * NOTE: We have to use try_peek here since we may be at the end.
@@ -1007,14 +1008,9 @@ pub struct Hexadecimal(pub SmallVec<[u8; 16]>);
 impl<'a> SimpleParse<'a> for Hexadecimal {
     type Err = HexadecimalParseError;
 
+    #[inline]
     fn parse(parser: &mut SimpleParser<'a>) -> Result<Self, Self::Err> {
-        if let Some(hexadecimal) = parser.take_only_ascii(|b: u8| b.is_ascii_hexdigit()) {
-            hexadecimal.parse()
-        } else {
-            Err(HexadecimalParseError::EmptyHex {
-                index: 0
-            })
-        }
+        parser.take_only_ascii(|b: u8| b.is_ascii_hexdigit()).parse()
     }
 }
 impl FromStr for Hexadecimal {
@@ -1132,30 +1128,19 @@ impl<'a> SimpleParse<'a> for Ident {
     fn parse(parser: &mut SimpleParser<'a>) -> Result<Self, Self::Err> {
         let mut result = String::new();
         if parser.peek().filter(|first| first.is_ascii_alphabetic()).is_some() {
-            parser.pop();
             result.push(parser.pop() as char);
-            if let Some(taken) = parser.take_only_ascii(|b: u8| b.is_ascii_alphanumeric()) {
-                result.push_str(taken);
-            }
-            if let Some(next) = parser.remaining().chars().next()
-                .filter(|b| !b.is_ascii_whitespace()) {
-                Err(InvalidIdentError::InvalidChar {
-                    index: parser.current_index(),
-                    invalid: next
-                })
-            } else {
-                Ok(Ident(Arc::from(result)))
-            }
+            result.push_str(parser.take_only_ascii(|b: u8| b.is_ascii_alphanumeric()));
+            Ok(Ident(Arc::from(result)))
         } else {
             Err(InvalidIdentError::InvalidChar {
                 index: parser.current_index(),
-                invalid: ' '.to_owned()
+                invalid: parser.peek_char()
             })
         }
     }
 }
 
-#[derive(Debug, Fail, SimpleParseError)]
+#[derive(Debug, Fail, SimpleParseError, Clone, Eq, PartialEq)]
 pub enum InvalidIdentError {
     #[fail(display = "Empty identifier")]
     Empty {
@@ -1166,4 +1151,24 @@ pub enum InvalidIdentError {
         index: usize,
         invalid: char,
     },
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn parse_ident() {
+        assert_eq!(Ident::new("bob"), Ident(Arc::from("bob")));
+        assert_eq!(Ident::parse("bob ").unwrap_err(), InvalidIdentError::InvalidChar {
+            invalid: ' ',
+            index: 3
+        });
+        let mut parser = SimpleParser::from("bob loves food");
+        assert_eq!(parser.parse::<Ident, InvalidIdentError>().unwrap(), Ident::new("bob"));
+        assert_eq!(parser.pop(), b' ');
+        assert_eq!(parser.parse::<Ident, InvalidIdentError>().unwrap(), Ident::new("loves"));
+        assert_eq!(parser.pop(), b' ');
+        assert_eq!(parser.parse::<Ident, InvalidIdentError>().unwrap(), Ident::new("food"));
+        assert_eq!(parser.remaining(), "");
+    }
 }

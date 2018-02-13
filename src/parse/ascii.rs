@@ -120,28 +120,36 @@ pub fn find_ascii<P: AsciiPattern>(target: &str, mut pattern: P) -> Option<usize
 /// Find the first ascii character that matches the specified predicate,
 /// stopping as soon unicode is encountered.
 #[inline]
-pub fn find_only_ascii<P: AsciiPattern>(target: &str, mut pattern: P) -> Option<usize> {
+pub fn find_only_ascii<P: AsciiPattern>(target: &str, mut pattern: P) -> Result<usize, AsciiFindError> {
     for (index, value) in target.bytes().enumerate() {
         if !value.is_ascii() {
-            return None
+            return Err(AsciiFindError::Unicode(index))
         }
         if pattern.apply(value) {
-            return Some(index);
+            return Ok(index);
         }
     }
-    None
+    Err(AsciiFindError::NotFound)
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum AsciiFindError {
+    Unicode(usize),
+    NotFound
 }
 
 /// Split the string along the first ascii character that matches the specified predicate,
-/// stopping if any unicode is encountered.
-/// Faster equivelant of `find_only_ascii(target, func).map(|index| target.split_at(index))`
+/// or whenever unicode is encountered.
+///
+/// If no character matches, `None` whill be returned
 #[inline]
 pub fn split_only_ascii<P: AsciiPattern>(target: &str, pattern: P) -> Option<(&str, &str)> {
-    find_only_ascii(target, pattern).map(|index| {
-        unsafe {
-            unchecked_split_at(target, index)
-        }
-    })
+    match find_only_ascii(target, pattern) {
+        Ok(index) | Err(AsciiFindError::Unicode(index)) => {
+            unsafe { Some(unchecked_split_at(target, index)) }
+        },
+        Err(AsciiFindError::NotFound) => None
+    }
 }
 
 /// A pattern that only operates on ASCII characters.
