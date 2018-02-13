@@ -241,11 +241,14 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
         self.expected_any(expected)?
     }
     #[inline]
-    pub fn expect_identifier(&self) -> Result<&'a Ident, T::Err>
+    pub fn expect_identifier(&mut self) -> Result<&'a Ident, T::Err>
         where T::Err: UnexpectedParseError<T> {
-        self.peek()
-            .and_then(|token| token.identifier())
-            .ok_or_else(|| self.unexpected_err())
+        if let Some(ident) = self.peek().and_then(|token| token.identifier()) {
+            self.advance(1);
+            Ok(ident)
+        } else {
+            self.unexpected()?
+        }
     }
     /// Skip all whitespace tokens, as determined by `Token::is_whitespace`
     #[inline]
