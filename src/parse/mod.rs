@@ -399,6 +399,12 @@ pub trait DefaultParseError: SimpleParseError {
 pub trait FromParseError<T>: SimpleParseError {
     fn from_cause(index: usize, cause: T) -> Self;
 }
+impl<T: SimpleParseError> FromParseError<T> for T {
+    #[inline]
+    fn from_cause(_: usize, cause: T) -> Self {
+        cause
+    }
+}
 /// Indicates that a `SimpleParseError` can be created from an unexpected item
 pub trait UnexpectedParseError<T>: UnexpectedEndParseError + SimpleParseError {
     fn unexpected(index: usize, expected: Vec<T>, actual: T) -> Self;
