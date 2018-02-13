@@ -320,20 +320,20 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
     match ast.body {
         Body::Enum(ref variants) => {
             let mut cause_cases = Vec::new();
-            let mut index_offset_cases = Vec::new();
-            let mut index_cases = Vec::new();
+            let mut location_mut_cases = Vec::new();
+            let mut location_cases = Vec::new();
             let mut from_implementations = Vec::new();
             for variant in variants {
                 let name = &variant.ident;
                 let cause = find_field(variant.data.fields(), "cause")
                     .map(|field| &field.ty);
-                let index_type = find_field(variant.data.fields(), "index")
+                let location_type = find_field(variant.data.fields(), "location")
                     .map(|field| &field.ty)
-                    .unwrap_or_else(|| panic!("{}::{} must have an index field!", error_name, name));
-                let optional_index = match BasicType::determine(index_type) {
-                    Some(BasicType::MachineInteger(false)) => false,
-                    Some(BasicType::Option(box BasicType::MachineInteger(false))) => true,
-                    _ => panic!("index field for {}::{} must be a usize or Option<usize>")
+                    .unwrap_or_else(|| panic!("{}::{} must have a location field!", error_name, name));
+                let optional_location = match BasicType::determine(location_type) {
+                    Some(BasicType::NamedType(ref name)) if name == "Location" => false,
+                    Some(BasicType::Option(box BasicType::NamedType(ref name))) if name == "Location" => true,
+                    _ => panic!("location field for {}::{} must be a Location or Option<Location>")
                 };
                 if cause.is_some() {
                     cause_cases.push(quote!(#error_name::#name { ref cause, .. } => ::duckcommons::parse::_cast_parse_error(cause)));
@@ -345,47 +345,42 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
                         from_implementations.push(quote! {
                             impl  #impl_generics ::duckcommons::parse::FromParseError<#cause> for #error_name #ty_generics #where_clause {
                                 #[inline]
-                                fn from_cause(index: usize, cause: #cause) -> Self {
-                                    #error_name::#name { index, cause }
+                                fn from_cause(location: Location, cause: #cause) -> Self {
+                                    #error_name::#name { location, cause }
                                 }
                             }
                         })
                     }
                 }
-                if !optional_index {
-                    index_offset_cases.push(quote! {
-                        #error_name::#name { ref mut index, .. } => {
-                            *index = new_index as usize;
-                        }
-                    });
+                if !optional_location {
+                    location_mut_cases.push(quote!(#error_name::#name { ref mut location, .. } => location));
                 } else {
-                    index_offset_cases.push(quote! {
-                        #error_name::#name { ref mut index, .. } => {
-                            *index = Some(new_index as usize);
-                        }
+                    location_mut_cases.push(quote! {
+                        #error_name::#name { location: Some(ref mut location), .. } => location,
+                        #error_name::#name { location: None, .. } => ::duckcommons::parse::_missing_index(self)
                     });
                 }
-                if !optional_index {
-                    index_cases.push(quote!(#error_name::#name { index, .. } => index));
+                if !optional_location {
+                    location_cases.push(quote!(#error_name::#name { location, .. } => location  ));
                 } else {
-                    index_cases.push(quote!(#error_name::#name { index, .. } => index.unwrap_or_else(|| ::duckcommons::parse::_missing_index(self))))
+                    location_cases.push(quote! {
+                        #error_name::#name { location: Some(location), .. } => location,
+                        #error_name::#name { location: None, .. } => ::duckcommons::parse::_missing_index(self)
+                    })
                 }
             }
             quote! {
                 impl #impl_generics ::duckcommons::parse::SimpleParseError for #error_name #ty_generics #where_clause {
                     #[inline]
-                    fn index(&self) -> usize {
+                    fn location(&self) -> ::duckcommons::parse::Location {
                         match *self {
-                            #(#index_cases),*
+                            #(#location_cases),*
                         }
                     }
                     #[inline]
-                    fn offset(&mut self, offset: isize) {
-                        // NOTE: We need to look before we leap to keep the borrow checker happy -_-
-                        let new_index = (self.index() as isize) + offset;
-                        assert!(new_index >= 0, "Unable to offset {:?} by {}", self, offset);
+                    fn location_mut(&mut self) -> &mut ::duckcommons::parse::Location {
                         match *self {
-                            #(#index_offset_cases),*
+                            #(#location_mut_cases),*
                         }
                     }
                     #[inline]
@@ -405,12 +400,12 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
             quote! {
                 impl #impl_generics ::duckcommons::parse::SimpleParseError for #error_name #ty_generics #where_clause {
                     #[inline]
-                    fn index(&self) -> usize {
-                        self.0.index()
+                    fn location(&self) -> ::duckcommons:parse::Location {
+                        self.0.location()
                     }
                     #[inline]
-                    fn offset(&mut self, offset: isize) {
-                        self.0.offset(offset);
+                    fn location_mut(&self) -> &mut ::duckcommons:parse::Location {
+                        self.0.location_mut()
                     }
                     #[inline]
                     fn parse_cause(&self) -> Option<&::duckcommons::parse::SimpleParseError> {
@@ -426,14 +421,12 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
             quote! {
                 impl #impl_generics ::duckcommons::parse::SimpleParseError for #error_name #ty_generics #where_clause {
                     #[inline]
-                    fn index(&self) -> usize {
-                        self.index
+                    fn location(&self) -> ::duckcommons:parse::Location {
+                        self.location
                     }
                     #[inline]
-                    fn offset(&mut self, offset: isize) {
-                        let result = (self.index as isize) + offset;
-                        assert!(result >= 0, "Unable to offset {:?} by {}", self, offset);
-                        self.index = result as usize;
+                    fn location_mut(&mut self) -> &mut ::duckcommons:parse::Location {
+                        &mut self.location
                     }
                     #[inline]
                     fn parse_cause(&self) -> Option<&::duckcommons::parse::SimpleParseError> {
@@ -536,6 +529,7 @@ enum BasicType {
     /// An integer with the specified number of bits,
     /// with negative values denoting signed integers and positive indicating signed.
     Integer(i32),
+    NamedType(String),
     Option(Box<BasicType>)
 }
 lazy_static! {
@@ -562,10 +556,13 @@ impl BasicType {
                             let signed = &captures[1] == "i";
                             let bits = captures[2].parse::<i32>().unwrap();
                             return Some(BasicType::Integer(if signed { -bits } else { bits }));
+                        } else {
+                            return Some(BasicType::NamedType(name.to_owned()))
                         }
                     }
                 }
             }
+
         }
         None
     }

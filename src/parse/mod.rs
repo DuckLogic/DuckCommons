@@ -8,7 +8,8 @@ use std::str::pattern::Pattern;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::borrow::Borrow;
-use std::ops::Deref;
+use std::ops::{Deref, Add, AddAssign};
+use std::cmp::Ordering;
 
 use smallvec::SmallVec;
 use regex::Regex;
@@ -18,6 +19,7 @@ pub mod ascii;
 pub mod text;
 
 use self::ascii::AsciiPattern;
+use Lazy;
 
 /// When compiling in debug mode, checks a special `PARSER_SHOULD_PANIC` flag,
 /// which will make all unexpected tokens trigger a panic instead of an error.
@@ -90,12 +92,12 @@ impl From<char> for Symbol {
 
 #[derive(Clone, Debug)]
 pub struct TokenStream<'a, T: Token + 'a> {
-    tokens: &'a [(usize, T)],
+    tokens: &'a [(Location, T)],
     token_index: usize
 }
 impl<'a, T: Token + 'a> TokenStream<'a, T> {
     #[inline]
-    pub fn new(tokens: &'a [(usize, T)]) -> Self {
+    pub fn new(tokens: &'a [(Location, T)]) -> Self {
         assert!(::collect::is_sorted_by_key(tokens, |&(index, _)| index));
         TokenStream { tokens, token_index: 0 }
     }
@@ -167,7 +169,7 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
     }
     /// The current position in the original text.
     #[inline]
-    pub fn current_index(&self) -> usize {
+    pub fn current_location(&self) -> Location {
         self.tokens[self.token_index].0
     }
     #[inline]
@@ -183,14 +185,14 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
         error
     }
     /// Indicates that the next token is unexpected,
-    /// as if by invoking `unexpected(stream.current_index(), None, stream.peek())`
+    /// as if by invoking `unexpected(stream.current_location(), None, stream.peek())`
     /// However, if it's the end of stream, it returns an unexpected end error instead.
     #[cold]
     pub fn unexpected(&self) -> Result<!, T::Err> where T::Err: UnexpectedParseError<T> {
         self.unexpected_ahead(0)
     }
     /// Indicates that the current token is unexpected,
-    /// as if by invoking `unexpected(stream.current_index() + ahead, None, stream.peek())`
+    /// as if by invoking `unexpected(stream.current_location() + ahead, None, stream.peek())`
     /// However, if it's the end of stream, it returns an unexpected end error instead.
     #[cold]
     pub fn unexpected_ahead(&self, ahead: usize) -> Result<!, T::Err> where T::Err: UnexpectedParseError<T> {
@@ -205,14 +207,14 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
             .map(Borrow::borrow)
             .cloned()
             .collect::<Vec<T>>();
-        if let Some(&(index, ref actual)) = self.tokens.get(self.token_index) {
+        if let Some(&(location, ref actual)) = self.tokens.get(self.token_index) {
             debug_assert!(
                 !expected.contains(actual),
                 "Actual token {:?} was claimed unexpected, but listed in claimed expected values {:?}",
                 actual, expected
             );
             self.maybe_panic(Err(T::Err::unexpected(
-                index, expected, actual.clone()
+                location, expected, actual.clone()
             )))
         } else {
             self.unexpected()?
@@ -267,14 +269,14 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
     #[cold]
     pub fn unexpected_at<E: UnexpectedParseError<T>>(&self, token: usize) -> Result<!, E>
         where T::Err: UnexpectedParseError<T> {
-        self.maybe_panic(if let Some(&(index, ref token)) = self.tokens.get(token) {
-            Err(E::unexpected(index, vec![], token.clone()))
+        self.maybe_panic(if let Some(&(location, ref token)) = self.tokens.get(token) {
+            Err(E::unexpected(location, vec![], token.clone()))
         } else {
             Err(E::unexpected_end(self.tokens.last().unwrap().0))
         })
     }
     #[inline]
-    pub fn index_at(&self, token: usize) -> usize {
+    pub fn location_of(&self, token: usize) -> Location {
         self.tokens[token].0
     }
     /// Parse the specified, splitting it along the specified delimiter until the terminator is reached,
@@ -340,13 +342,15 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
                 level += 1;
             } else if result == &end {
                 match level {
-                    0 => return self.maybe_panic(Err(T::Err::unmatched(index + offset, end))),
+                    0 => return self.maybe_panic(Err(T::Err::unmatched(
+                        self.location_of(index + offset), end
+                    ))),
                     1 => return Ok(index + offset),
                     _ => level -= 1
                 }
             }
         }
-        self.maybe_panic(Err(T::Err::unmatched(index, start)))
+        self.maybe_panic(Err(T::Err::unmatched(self.location_of(index), start)))
     }
     #[inline]
     pub fn slice(&self, start: usize, end: usize) -> Self {
@@ -382,7 +386,7 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
         }
     }
 }
-pub struct PeekingIter<'a, T: Token + 'a>(slice::Iter<'a, (usize, T)>);
+pub struct PeekingIter<'a, T: Token + 'a>(slice::Iter<'a, (Location, T)>);
 impl<'a, T: Token + 'a> Iterator for PeekingIter<'a, T> {
     type Item = &'a T;
 
@@ -397,32 +401,37 @@ pub trait DefaultParseError: SimpleParseError {
 }
 /// Indicates that a `SimpleParseError` can be created directly from a cause and index
 pub trait FromParseError<T>: SimpleParseError {
-    fn from_cause(index: usize, cause: T) -> Self;
+    fn from_cause(location: Location, cause: T) -> Self;
 }
 impl<T: SimpleParseError> FromParseError<T> for T {
     #[inline]
-    fn from_cause(index: usize, mut cause: T) -> Self {
-        cause.offset(index as isize);
+    fn from_cause(location: Location, mut cause: T) -> Self {
+        *cause.location_mut() += location;
         cause
     }
 }
 /// Indicates that a `SimpleParseError` can be created from an unexpected item
 pub trait UnexpectedParseError<T>: UnexpectedEndParseError + SimpleParseError {
-    fn unexpected(index: usize, expected: Vec<T>, actual: T) -> Self;
+    fn unexpected(location: Location, expected: Vec<T>, actual: T) -> Self;
 }
 /// Indicates that a `SimpleParseError` can be created from an unmatched start or end token
 pub trait UnmatchedTokenError<T>: UnexpectedParseError<T> {
-    fn unmatched(index: usize, start: T) -> Self;
+    fn unmatched(location: Location, start: T) -> Self;
 }
 /// Indicates that a `SimpleParseError` can be created when an unexpected EOF is encountered
 pub trait UnexpectedEndParseError: SimpleParseError {
-    fn unexpected_end(index: usize) -> Self;
+    fn unexpected_end(location: Location) -> Self;
 }
 
 /// A simple parser for text
 pub struct SimpleParser<'a> {
     text: &'a str,
-    remaining: &'a str
+    remaining: &'a str,
+    /// Remember, the cache is lazily loaded and boxed to save space.
+    ///
+    /// This shouldn't be a significant waste in the common case,
+    /// since a `LocationCache` should usually only be required if we have an error.
+    cache: Lazy<Box<LocationCache<'a>>>
 }
 impl<'a> SimpleParser<'a> {
     #[inline]
@@ -582,7 +591,10 @@ impl<'a> SimpleParser<'a> {
                 level += 1;
             } else if result == end {
                 match level {
-                    0 => return Err(E::unmatched(start_index + offset, end as char)),
+                    0 => return Err(E::unmatched(
+                        self.cache().determine_location(start_index + offset),
+                        end as char
+                    )),
                     1 => {
                         let (result, newly_remaining) = self.remaining.split_at(offset);
                         self.remaining = newly_remaining;
@@ -594,7 +606,7 @@ impl<'a> SimpleParser<'a> {
                 unreachable!(result)
             }
         }
-        Err(E::unmatched(start_index, start as char))
+        Err(E::unmatched(self.cache().determine_location(start_index), start as char))
     }
     /// Take all the input until the given predicate matches an ASCII character,
     /// returning None if the predicate never matches.
@@ -665,7 +677,7 @@ impl<'a> SimpleParser<'a> {
                 self.remaining = parser.remaining;
                 Ok(value)
             }
-            Err(cause) => Err(E::from_cause(self.current_index(), cause))
+            Err(cause) => Err(E::from_cause(self.current_location(), cause))
         }
     }
     /// Create an error of the specified type from the current index, equivalent to `T::from(self.current_index())`.
@@ -678,9 +690,13 @@ impl<'a> SimpleParser<'a> {
     pub fn current_index(&self) -> usize {
         self.text.len() - self.remaining.len()
     }
+    pub fn current_location(&self) -> Location {
+        self.cache().determine_location(self.current_index())
+    }
+    /// The `LocationCache` for this parser
     #[inline]
-    pub fn determine_location(&self) -> Location {
-        Location::find(self.text, self.current_index())
+    pub fn cache(&self) -> &LocationCache<'a> {
+        self.cache.load(|| box LocationCache::new(self.text))
     }
     /// Skip all whitespace chars, returning the skipped characters
     #[inline]
@@ -693,14 +709,72 @@ impl<'a> From<&'a str> for SimpleParser<'a> {
     fn from(text: &'a str) -> Self {
         SimpleParser {
             text,
-            remaining: text
+            remaining: text,
+            cache: Lazy::empty()
         }
+    }
+}
+
+/// Caches information on line numbers in a text,
+/// in order to make computing them fast
+pub struct LocationCache<'a> {
+    text: &'a str,
+    line_starts: Lazy<Vec<usize>>
+}
+impl<'a> LocationCache<'a> {
+    #[inline]
+    pub fn new(text: &'a str) -> LocationCache<'a> {
+        LocationCache { text, line_starts: Lazy::empty() }
+    }
+    pub fn determine_location(&self, index: usize) -> Location {
+        assert!(index < self.text.len(), "Invalid index: {}", index);
+        let line_starts = self.line_starts();
+        match line_starts.len() {
+            0 => unreachable!(),
+            1 => Location {
+                multiline: false,
+                line: 0,
+                index,
+                char_offset: index
+            },
+            _ => {
+                let (line, line_start) = match line_starts.binary_search(&index) {
+                    Ok(line) => (line, line_starts[line]),
+                    Err(line) => {
+                        assert!(line > 0);
+                        (line - 1, line_starts[line - 1])
+                    }
+                };
+                assert!(line_start <= index);
+                Location {
+                    multiline: true,
+                    line,
+                    index,
+                    char_offset: index - line_start
+                }
+            }
+        }
+    }
+    pub fn offset_location(&self, start: Location, offset: isize) -> Location {
+        assert!(start.index <= isize::max_value() as usize, "Location overflow: {:?}", start);
+        let result = offset + (start.index as isize);
+        assert!(result >= 0, "Unable to offset {:?} by {}", start, offset);
+        self.determine_location(result as usize)
+    }
+    fn line_starts(&self) -> &[usize] {
+        self.line_starts.load(|| {
+            let mut result = Vec::with_capacity((self.text.len() / 8)
+                .min(64).max(1));
+            result.push(0);
+            result.extend(self.text.match_indices('\n').map(|(index, _)| index));
+            result
+        })
     }
 }
 
 /// The full location of a byte in a string, including it's line number,
 /// character offset and whether or not the original text spanned multiple lines.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Location {
     /// Whether or not the original text spanned multiple lines
     pub multiline: bool,
@@ -712,20 +786,41 @@ pub struct Location {
     pub index: usize,
 }
 impl Location {
-    fn find(text: &str, index: usize) -> Self {
-        let before = &text[..index];
-        let line = before.lines().count();
-        let line_start = before.rfind('\n').map(|start| start + 1).unwrap_or(0);
-        let char_offset = before[line_start..].chars().count();
-        /*
-         * Although we can short-circuit if the location's line number is greater than zero,
-         * we still have to check if there's any newline in the entire text as it might
-         * just happen to be on the first line.
-         * We also shouldn't just count the lines as we want to consider text
-         * with a trailing newline 'multiline' for our purposes.
-         */
-        let multiline = line > 0 || text.contains('\n');
-        Location { multiline, index, char_offset, line }
+    /// Creates a location for the a single-lined piece line of text,
+    /// with the specified byte and character index.
+    #[inline]
+    pub fn simple(index: usize) -> Location {
+        Location {
+            multiline: false,
+            line: 0,
+            index,
+            char_offset: index
+        }
+    }
+    /// The starting location of all text, with both `byte`, `line`, and `char_offset` set to zero.
+    ///
+    /// The text is assumed to be multiline,
+    /// although that's not nessicarrily true.
+    #[inline]
+    pub fn zero() -> Location {
+        Location {
+            multiline: true,
+            line: 0,
+            char_offset: 0,
+            index: 0
+        }
+    }
+}
+impl PartialOrd for Location {
+    #[inline]
+    fn partial_cmp(&self, other: &Location) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for Location {
+    #[inline]
+    fn cmp(&self, other: &Location) -> Ordering {
+        self.index.cmp(&other.index)
     }
 }
 impl Display for Location {
@@ -738,6 +833,25 @@ impl Display for Location {
             // NOTE: Darn humans expect line numbers to start with one
             write!(f, "{}:{}", self.line + 1, self.char_offset)
         }
+    }
+}
+impl Add for Location {
+    type Output = Location;
+
+    fn add(self, rhs: Location) -> Self::Output {
+        Location {
+            multiline: self.multiline | rhs.multiline,
+            line: self.line + rhs.line,
+            char_offset: self.char_offset + rhs.char_offset,
+            index: self.index + rhs.index
+        }
+    }
+}
+impl AddAssign for Location {
+    #[inline]
+    fn add_assign(&mut self, rhs: Location) {
+        let result = *self + rhs;
+        *self = result
     }
 }
 
@@ -758,12 +872,12 @@ pub trait SimpleParse<'a>: Sized {
         let mut parser = SimpleParser::from(text);
         let value = parser.try_parse::<Self>()
             .map_err(|cause| StringParseError::InvalidValue {
-                index: 0,
+                location: cause.location(),
                 cause
             })?;
         if !parser.is_empty() {
             Err(StringParseError::UnexpectedTrailing {
-                index: parser.current_index()
+                location: parser.current_location()
             })
         } else {
             Ok(value)
@@ -774,11 +888,11 @@ pub trait SimpleParse<'a>: Sized {
 pub enum StringParseError<E: SimpleParseError> {
     #[fail(display = "Unexpected trailing data")]
     UnexpectedTrailing {
-        index: usize
+        location: Location
     },
     #[fail(display = "{}", cause)]
     InvalidValue {
-        index: usize,
+        location: Location,
         cause: E
     }
 }
@@ -818,9 +932,13 @@ impl<T: SimpleParseError> CastParseError for T {
 /// and should instead rely on the caller to display the causes and position.
 pub trait SimpleParseError: Fail {
     /// Return the byte-index of the error in the original text
-    fn index(&self) -> usize;
-    /// Offset the byte-index of this error by the specified amount.
-    fn offset(&mut self, offset: isize);
+    #[inline]
+    fn index(&self) -> usize {
+        self.location().index
+    }
+    fn location(&self) -> Location;
+    /// Give a mutable reference to this parser's location
+    fn location_mut(&mut self) -> &mut Location;
     /// Return the underlying cause of this parse error, if it was caused by another `SimpleParseError`
     ///
     /// The cause is expected to have left its indexes untouched,
@@ -869,7 +987,7 @@ impl<'a> SimpleParse<'a> for NumericLiteral {
                 if let Some(tail) = parser.take_pattern(&*FLOAT_TAIL_PATTERN) {
                     floating.push_str(tail);
                     let value = floating.parse::<f64>().map_err(|_| NumericLiteralParseError::InvalidFloat {
-                        index: 0
+                        location: Location::zero()
                     })?;
                     Ok(NumericLiteral::Floating(value))
                 } else {
@@ -880,12 +998,12 @@ impl<'a> SimpleParse<'a> for NumericLiteral {
                 if !integral.is_empty() {
                     // Fast path, when it's just an integer so we can parse without a regex or buffer
                     let raw = integral.parse::<i64>().map_err(|cause| NumericLiteralParseError::InvalidInteger {
-                        index: parser.current_index(),
+                        location: parser.current_location(),
                         cause
                     })?;
                     Ok(NumericLiteral::Integer(if positive { raw } else { -raw }))
                 } else {
-                    Err(NumericLiteralParseError::InvalidNumber { index: 0 })
+                    Err(NumericLiteralParseError::InvalidNumber { location: Location::zero() })
                 }
             }
         }
@@ -907,16 +1025,16 @@ impl Display for NumericLiteral {
 pub enum NumericLiteralParseError {
     #[fail(display = "Invalid number")]
     InvalidNumber {
-        index: usize,
+        location: Location,
     },
     #[fail(display = "Invalid integer, {}", cause)]
     InvalidInteger {
-        index: usize,
+        location: Location,
         #[cause] cause: ParseIntError
     },
     #[fail(display = "Invalid float")]
     InvalidFloat {
-        index: usize,
+        location: Location,
     }
 }
 /// A string literal that has been quoted and escaped
@@ -938,7 +1056,7 @@ impl<'a> SimpleParse<'a> for StringLiteral {
             parser.pop();
         } else {
             return Err(StringLiteralParseError::ExpectedStartQuote {
-                index: 0
+                location: Location::zero()
             })
         }
         // NOTE: zero-copy is certainly possible, but seems like premature optimization at this point
@@ -959,10 +1077,10 @@ impl<'a> SimpleParse<'a> for StringLiteral {
                             Some(b'\\') => '\\',
                             Some(b'u') => return Err(StringLiteralParseError::UnsupportedEscape {
                                 kind: 'u',
-                                index: parser.current_index()
+                                location: parser.current_location()
                             }),
                             _ => return Err(StringLiteralParseError::InvalidEscape {
-                                index: parser.current_index()
+                                location: parser.current_location()
                             })
                         };
                         result.push(escaped);
@@ -978,7 +1096,7 @@ impl<'a> SimpleParse<'a> for StringLiteral {
             }
         }
         Err(StringLiteralParseError::MissingEndQuote {
-            index: 0
+            location: parser.current_location()
         })
     }
 }
@@ -986,20 +1104,20 @@ impl<'a> SimpleParse<'a> for StringLiteral {
 pub enum StringLiteralParseError {
     #[fail(display = "Invalid string, expected start quote")]
     ExpectedStartQuote {
-        index: usize,
+        location: Location,
     },
     #[fail(display = "Invalid string, missing end quote")]
     MissingEndQuote {
-        index: usize,
+        location: Location,
     },
     #[fail(display = "Invalid string, invalid escape sequence")]
     InvalidEscape {
-        index: usize,
+        location: Location,
     },
     /// Indicates that an escape is valid but unsupported
     #[fail(display = "Invalid string, unsupported escape '\\{}'", kind)]
     UnsupportedEscape {
-        index: usize,
+        location: Location,
         kind: char
     }
 }
@@ -1020,25 +1138,25 @@ impl FromStr for Hexadecimal {
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         if text.is_empty() {
             return Err(HexadecimalParseError::EmptyHex {
-                index: 0
+                location: Location::zero()
             })
         }
         let mut buffer = SmallVec::new();
         let mut parser = SimpleParser::from(text);
         while !parser.is_empty() {
             let first = parser.peek().and_then(parse_hex_char).ok_or_else(|| HexadecimalParseError::InvalidChar {
-                index: parser.current_index(),
+                location: parser.current_location(),
                 value: parser.peek_char()
             })?;
             parser.pop();
             let second = if !parser.is_empty() {
                 parser.peek().and_then(parse_hex_char).ok_or_else(|| HexadecimalParseError::InvalidChar {
-                    index: parser.current_index(),
+                    location: parser.current_location(),
                     value: parser.peek_char()
                 })?
             } else {
                 return Err(HexadecimalParseError::InvalidLength {
-                    index: 0,
+                    location: Location::zero(),
                     amount: buffer.len() + 1
                 })
             };
@@ -1060,16 +1178,16 @@ fn parse_hex_char(b: u8) -> Option<u8> {
 pub enum HexadecimalParseError {
     #[fail(display = "Expected valid hexadecimal")]
     EmptyHex {
-        index: usize,
+        location: Location,
     },
     #[fail(display = "Invalid hex char, {}", value)]
     InvalidChar {
-        index: usize,
+        location: Location,
         value: char
     },
     #[fail(display = "Invalid hex length, {}", amount)]
     InvalidLength {
-        index: usize,
+        location: Location,
         amount: usize
     }
 }
@@ -1079,6 +1197,22 @@ pub enum HexadecimalParseError {
 pub struct Ident(Arc<str>);
 impl Ident {
     #[inline]
+    pub fn is_valid_starting_byte(b: u8) -> bool {
+        b.is_ascii_alphabetic() || b == b'_'
+    }
+    #[inline]
+    pub fn is_valid_starting_char(c: char) -> bool {
+        c.is_ascii() && Ident::is_valid_starting_byte(c as u8)
+    }
+    #[inline]
+    pub fn is_valid_byte(b: u8) -> bool {
+        b.is_ascii_alphanumeric() || b == b'_'
+    }
+    #[inline]
+    pub fn is_valid_char(c: char) -> bool {
+        c.is_ascii() && Ident::is_valid_byte(c as u8)
+    }
+    #[inline]
     pub fn new<T: Into<Arc<str>>>(text: T) -> Ident {
         Ident::parse(text.into()).unwrap()
     }
@@ -1087,10 +1221,10 @@ impl Ident {
         match Ident::parse_str(&text) {
             Ok(result) => Ok(result),
             Err(StringParseError::InvalidValue { cause, .. }) => Err(cause),
-            Err(StringParseError::UnexpectedTrailing { index }) => {
+            Err(StringParseError::UnexpectedTrailing { location }) => {
                 Err(InvalidIdentError::InvalidChar {
-                    index,
-                    invalid: text[index..].chars().next().unwrap()
+                    location,
+                    invalid: text[location.index..].chars().next().unwrap()
                 })
             }
         }
@@ -1128,13 +1262,13 @@ impl<'a> SimpleParse<'a> for Ident {
 
     fn parse(parser: &mut SimpleParser<'a>) -> Result<Self, Self::Err> {
         let mut result = String::new();
-        if parser.peek().filter(|first| first.is_ascii_alphabetic()).is_some() {
+        if parser.peek().filter(|&first| Ident::is_valid_starting_byte(first)).is_some() {
             result.push(parser.pop() as char);
-            result.push_str(parser.take_only_ascii(|b: u8| b.is_ascii_alphanumeric()));
+            result.push_str(parser.take_only_ascii(Ident::is_valid_byte));
             Ok(Ident(Arc::from(result)))
         } else {
             Err(InvalidIdentError::InvalidChar {
-                index: parser.current_index(),
+                location: parser.current_location(),
                 invalid: parser.peek_char()
             })
         }
@@ -1145,11 +1279,11 @@ impl<'a> SimpleParse<'a> for Ident {
 pub enum InvalidIdentError {
     #[fail(display = "Empty identifier")]
     Empty {
-        index: usize
+        location: Location
     },
     #[fail(display = "Invalid character: {:?}", invalid)]
     InvalidChar {
-        index: usize,
+        location: Location,
         invalid: char,
     },
 }
@@ -1162,7 +1296,7 @@ mod test {
         assert_eq!(Ident::new("bob"), Ident(Arc::from("bob")));
         assert_eq!(Ident::parse("bob ").unwrap_err(), InvalidIdentError::InvalidChar {
             invalid: ' ',
-            index: 3
+            location: Location::simple(3)
         });
         let mut parser = SimpleParser::from("bob loves food");
         assert_eq!(parser.parse::<Ident, InvalidIdentError>().unwrap(), Ident::new("bob"));
