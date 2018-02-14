@@ -1296,6 +1296,10 @@ impl Ident {
             }
         }
     }
+    #[inline]
+    pub fn rc(&self) -> &Arc<str> {
+        &self.0
+    }
 }
 impl Debug for Ident {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
@@ -1322,6 +1326,18 @@ impl Deref for Ident {
     #[inline]
     fn deref(&self) -> &str {
         &self.0
+    }
+}
+impl PartialEq<str> for Ident {
+    #[inline]
+    fn eq(&self, other: &str) -> bool {
+        **self == *other
+    }
+}
+impl PartialEq<String> for Ident {
+    #[inline]
+    fn eq(&self, other: &String) -> bool {
+        **self == **other
     }
 }
 impl<'a> SimpleParse<'a> for Ident {
