@@ -10,14 +10,15 @@ use std::sync::Arc;
 use std::borrow::Borrow;
 use std::ops::{Deref, Add, AddAssign};
 use std::cmp::Ordering;
+use std::cell::Cell;
 
 use smallvec::SmallVec;
 use regex::Regex;
 use failure::Fail;
+use itertools::Itertools;
 
 pub mod ascii;
 pub mod text;
-
 use self::ascii::AsciiPattern;
 use Lazy;
 
@@ -27,8 +28,56 @@ use Lazy;
 /// Panics are much easier to debug than errors, since they include a proper backtrace.
 #[inline]
 pub fn parser_should_panic() -> bool {
-    cfg!(debug_assertions) &&
-        ::env::environment_flag("PARSER_SHOULD_PANIC").unwrap_or(false)
+    parser_panic_level() != 0
+}
+thread_local! {
+    #[cfg(debug_assertions)]
+    static PARSER_PANIC_SUPPRESSIONS: Cell<u32> = Cell::new(0);
+}
+lazy_static! {
+    static ref ENV_PARSER_PANIC_LEVEL: u32 = {
+        match ::env::environment_config::<u32>("PARSER_PANIC_LEVEL") {
+            Some(level) => level,
+            None => {
+                // Default panic verbosity level is 1
+                match ::env::environment_flag("PARSER_SHOULD_PANIC") {
+                    Some(true) => 1,
+                    Some(false) | None => 0
+                }
+            }
+        }
+    };
+}
+/// The level of verbrosity of the parser's panics, or `0` if we shouldn't panic at all not at all
+#[cfg(debug_assertions)]
+#[inline]
+pub fn parser_panic_level() -> u32 {
+    if PARSER_PANIC_SUPPRESSIONS.with(|cell| cell.get()) > 0 {
+        // Someone is still suppressing our panics
+        0
+    } else {
+        *ENV_PARSER_PANIC_LEVEL
+    }
+}
+#[cfg(not(debug_assertions))]
+#[inline]
+pub fn parser_panic_level() -> u32 {
+    0
+}
+
+/// Suppress the parser's panics
+#[inline]
+#[cfg(debug_assertions)]
+pub fn with_panic_suppression<R, F>(func: F) -> R where F: FnOnce() -> R {
+    PARSER_PANIC_SUPPRESSIONS.with(|cell| cell.set(cell.get() + 1));
+    let result = func();
+    PARSER_PANIC_SUPPRESSIONS.with(|cell| cell.set(cell.get() - 1));
+    result
+}
+#[cfg(not(debug_assertions))]
+#[inline]
+pub fn with_panic_suppression<R, F>(func: F) -> R where F: FnOnce() -> R {
+    func()
 }
 
 /// A span of bytes in the original text.
@@ -170,7 +219,13 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
     /// The current position in the original text.
     #[inline]
     pub fn current_location(&self) -> Location {
-        self.tokens[self.token_index].0
+        if let Some(&(location, _)) = self.tokens.get(self.token_index) {
+            location
+        } else if let Some(&(location, _)) = self.tokens.last() {
+            location
+        } else {
+            Location::zero()
+        }
     }
     #[inline]
     pub fn remaining_tokens(&self) -> usize {
@@ -382,10 +437,19 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
     pub fn maybe_panic<O, E: Debug>(&self, result: Result<O, E>) -> Result<O, E> {
         match result {
             Ok(value) => Ok(value),
-            Err(ref error) if parser_should_panic() => {
-                panic!("Parser error `{:?}`, with tokens {:?}", error, self.tokens)
-            },
-            Err(error) => Err(error)
+            Err(error) => {
+                match parser_panic_level() {
+                    0 => Err(error),
+                    1 => panic!("Parser error: `{:?}`", error),
+                    _ => {
+                        let tokens = format!("[{}]",self.tokens.iter()
+                            .map(|&(location, ref token)| format!("    ({}, {:?})", location, token))
+                            .join(",\n")
+                        );
+                        panic!("Parser error `{:?}` @ {} with tokens {}", error, self.current_location(), tokens)
+                    }
+                }
+            }
         }
     }
 }

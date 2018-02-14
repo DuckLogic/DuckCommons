@@ -11,6 +11,7 @@ pub struct RawTwoSidedVec<T> {
 impl<T> RawTwoSidedVec<T> {
     #[inline]
     pub fn new() -> Self {
+        assert_ne!(mem::size_of::<T>(), 0, "Zero sized type!");
         RawTwoSidedVec {
             middle: Unique::empty(),
             capacity: Capacity { back: 0, front: 0 }
@@ -18,6 +19,9 @@ impl<T> RawTwoSidedVec<T> {
     }
     pub fn with_capacity(capacity: Capacity) -> Self {
         assert_ne!(mem::size_of::<T>(), 0, "Zero sized type!");
+        if capacity.is_empty() {
+            return RawTwoSidedVec::new()
+        }
         let mut heap = Heap::default();
         let raw = heap.alloc_array::<T>(capacity.checked_total())
             .unwrap_or_else(|e| heap.oom(e));
@@ -28,6 +32,7 @@ impl<T> RawTwoSidedVec<T> {
     }
     #[inline]
     pub unsafe fn from_raw_parts(middle: *mut T, capacity: Capacity) -> Self {
+        assert_ne!(mem::size_of::<T>(), 0, "Zero sized type!");
         debug_assert!(!middle.is_null());
         RawTwoSidedVec { middle: Unique::new_unchecked(middle), capacity }
     }
