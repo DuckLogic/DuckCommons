@@ -103,9 +103,9 @@ pub fn cast_debug<T>(value: &T) -> Option<&Debug> {
 trait CastDebug {
     fn maybe_debug(&self) -> Option<&Debug>;
 }
-default impl<T> CastDebug for T {
+impl<T> CastDebug for T {
     #[inline]
-    fn maybe_debug(&self) -> Option<&Debug> {
+    default fn maybe_debug(&self) -> Option<&Debug> {
         None
     }
 }

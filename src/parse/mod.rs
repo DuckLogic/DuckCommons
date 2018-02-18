@@ -1028,9 +1028,9 @@ pub fn _cast_parse_error<T: Fail>(error: &T) -> Option<&SimpleParseError> {
 pub trait CastParseError {
     fn cast(&self) -> Option<&SimpleParseError>;
 }
-default impl<T: Fail> CastParseError for T {
+impl<T: Fail> CastParseError for T {
     #[inline]
-    fn cast(&self) -> Option<&SimpleParseError> {
+    default fn cast(&self) -> Option<&SimpleParseError> {
         None
     }
 }

@@ -1,11 +1,13 @@
-use std::ptr::{self, Unique};
+use std::ptr::{self, NonNull};
+use std::marker::PhantomData;
 use std::ops::{Add};
 use std::mem;
 
 use std::heap::{Alloc, Layout, Heap};
 
 pub struct RawTwoSidedVec<T> {
-    middle: Unique<T>,
+    middle: NonNull<T>,
+    marker: PhantomData<T>,
     capacity: Capacity
 }
 impl<T> RawTwoSidedVec<T> {
@@ -13,7 +15,8 @@ impl<T> RawTwoSidedVec<T> {
     pub fn new() -> Self {
         assert_ne!(mem::size_of::<T>(), 0, "Zero sized type!");
         RawTwoSidedVec {
-            middle: Unique::empty(),
+            middle: NonNull::dangling(),
+            marker: PhantomData,
             capacity: Capacity { back: 0, front: 0 }
         }
     }
@@ -34,7 +37,7 @@ impl<T> RawTwoSidedVec<T> {
     pub unsafe fn from_raw_parts(middle: *mut T, capacity: Capacity) -> Self {
         assert_ne!(mem::size_of::<T>(), 0, "Zero sized type!");
         debug_assert!(!middle.is_null());
-        RawTwoSidedVec { middle: Unique::new_unchecked(middle), capacity }
+        RawTwoSidedVec { middle: NonNull::new_unchecked(middle), marker: PhantomData, capacity }
     }
     #[inline]
     pub fn capacity(&self) -> &Capacity {
@@ -99,7 +102,7 @@ unsafe impl<#[may_dangle] T> Drop for RawTwoSidedVec<T> {
             let mut heap = Heap::default();
             unsafe {
                 heap.dealloc_array(
-                    Unique::new_unchecked(self.alloc_start()),
+                    NonNull::new_unchecked(self.alloc_start()),
                     self.capacity.total()
                 ).unwrap_or_else(|err| heap.oom(err))
             }

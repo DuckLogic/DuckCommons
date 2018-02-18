@@ -1,5 +1,5 @@
 use std::{mem, intrinsics};
-use std::ptr::{Shared};
+use std::ptr::{NonNull};
 
 /// Pointer extensions which apply directly to pointer types,
 /// and to their wrappers `Shared<T>` and `Unique<T>`
@@ -35,7 +35,7 @@ pub trait PointerExt<T>: Sized + Copy {
         )
     }
 }
-impl<T> PointerExt<T> for Shared<T> {
+impl<T> PointerExt<T> for NonNull<T> {
     #[inline]
     fn ptr(self) -> *mut T {
         self.as_ptr()

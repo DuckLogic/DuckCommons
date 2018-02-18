@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::fmt::{self, Debug, Formatter};
-use std::ptr::Shared;
+use std::ptr::NonNull;
 use typed_arena::Arena;
 use std::iter::{FromIterator, TrustedLen};
 use std::ops::{Index, IndexMut};
@@ -97,7 +97,7 @@ pub struct IndexedArena<T> {
      * there's much less unsafe code since we don't need to reimplement the arena.
      */
     arena: Arena<T>,
-    elements: RefCell<Vec<Shared<T>>>,
+    elements: RefCell<Vec<NonNull<T>>>,
 }
 impl<T> IndexedArena<T> {
     #[inline]
@@ -116,7 +116,7 @@ impl<T> IndexedArena<T> {
         let start = ArenaIndex::from(start_index);
         start.offset(vec.len() as u64); // Ensure we can fit all the elements in a u16
         let allocated = self.arena.alloc_extend(vec);
-        self.elements.borrow_mut().extend(allocated.iter().map(Shared::from));
+        self.elements.borrow_mut().extend(allocated.iter().map(NonNull::from));
         (&*allocated, start)
     }
     #[inline]
@@ -124,7 +124,7 @@ impl<T> IndexedArena<T> {
         let mut elements = self.elements.borrow_mut();
         // NOTE: Creating the ArenaIndex first ensures we panic on overflow
         let index = ArenaIndex::from(elements.len());
-        let shared = Shared::from(self.arena.alloc(value));
+        let shared = NonNull::from(self.arena.alloc(value));
         elements.push(shared);
         unsafe {
             (&*shared.as_ptr(), index)

@@ -1,4 +1,4 @@
-use std::ptr::Shared;
+use std::ptr::NonNull;
 use std::hash::{Hash, Hasher, BuildHasherDefault};
 use std::cell::{RefCell, RefMut, Ref};
 use std::marker::PhantomData;
@@ -9,7 +9,7 @@ use ordermap::{OrderMap, Equivalent};
 
 use IntoOwned;
 
-type InternalMap<T> = OrderMap<HashedShared<T>, Shared<T>, BuildHasherDefault<IdiotHasher>>;
+type InternalMap<T> = OrderMap<HashedPtr<T>, NonNull<T>, BuildHasherDefault<IdiotHasher>>;
 
 /// An hash set of unique arena-allocated values,
 /// internally backed by a `OrderMap`.
@@ -88,8 +88,8 @@ impl<T: Eq + Hash> ArenaSet<T> {
                                        value: Q, hash: u64) -> &T {
         let value = value.into_owned();
         unsafe {
-            let result = Shared::from(self.arena.alloc(value));
-            exclusive_borrow.insert(HashedShared::with_hash(hash, result), result);
+            let result = NonNull::from(self.arena.alloc(value));
+            exclusive_borrow.insert(HashedPtr::with_hash(hash, result), result);
             &*result.as_ptr()
         }
     }
@@ -147,21 +147,21 @@ impl<T: Eq + Hash + Clone> Clone for ArenaSet<T> {
 }
 
 
-struct HashedShared<T> {
+struct HashedPtr<T> {
     hash: u64,
-    unsafe_value: Shared<T>
+    unsafe_value: NonNull<T>
 }
-impl<T> Clone for HashedShared<T> {
+impl<T> Clone for HashedPtr<T> {
     #[inline]
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<T> Copy for HashedShared<T> {}
-impl<T> HashedShared<T> {
+impl<T> Copy for HashedPtr<T> {}
+impl<T> HashedPtr<T> {
     #[inline]
-    unsafe fn with_hash(hash: u64, value: Shared<T>) -> Self {
-        HashedShared {
+    unsafe fn with_hash(hash: u64, value: NonNull<T>) -> Self {
+        HashedPtr {
             hash,
             unsafe_value: value
         }
@@ -171,21 +171,21 @@ impl<T> HashedShared<T> {
         self.unsafe_value.as_ptr()
     }
 }
-impl<T: Hash> Hash for HashedShared<T> {
+impl<T: Hash> Hash for HashedPtr<T> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write_u64(self.hash);
     }
 }
-impl<T: PartialEq<Q>, Q> PartialEq<HashedShared<Q>> for HashedShared<T> {
+impl<T: PartialEq<Q>, Q> PartialEq<HashedPtr<Q>> for HashedPtr<T> {
     #[inline]
-    fn eq(&self, other: &HashedShared<Q>) -> bool {
+    fn eq(&self, other: &HashedPtr<Q>) -> bool {
         unsafe {
             (*self.as_ptr()).eq(&*other.as_ptr())
         }
     }
 }
-impl<T: Eq> Eq for HashedShared<T> {}
+impl<T: Eq> Eq for HashedPtr<T> {}
 // I am so done with rust's type system right now -_-
 #[derive(Copy, Clone)]
 struct EquivalentLookupHack<'a, T, Q: Eq + Equivalent<T> + 'a> {
@@ -208,9 +208,9 @@ impl<'a, T, Q: Eq + Equivalent<T> + 'a> Hash for EquivalentLookupHack<'a, T, Q> 
         state.write_u64(self.hash)
     }
 }
-impl<'a, T, Q: Equivalent<T> + Eq + 'a> Equivalent<HashedShared<T>> for EquivalentLookupHack<'a, T, Q> {
+impl<'a, T, Q: Equivalent<T> + Eq + 'a> Equivalent<HashedPtr<T>> for EquivalentLookupHack<'a, T, Q> {
     #[inline]
-    fn equivalent(&self, key: &HashedShared<T>) -> bool {
+    fn equivalent(&self, key: &HashedPtr<T>) -> bool {
         self.target.equivalent(unsafe { &*key.as_ptr() })
     }
 }
