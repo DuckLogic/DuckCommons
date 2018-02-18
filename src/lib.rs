@@ -52,6 +52,8 @@ extern crate log;
 extern crate memchr;
 #[macro_use]
 extern crate failure;
+extern crate backtrace;
+
 // We declare a fake `duckcommons` macro so the macros resolve `duckcommons` -_-
 mod duckcommons {
     pub use super::*;

@@ -28,8 +28,53 @@ use Lazy;
 /// Panics are much easier to debug than errors, since they include a proper backtrace.
 #[inline]
 pub fn parser_should_panic() -> bool {
-    parser_panic_level() != 0
+    PanicLevel::current().level() != 0
 }
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct PanicLevel {
+    suppression_count: u32,
+    raw_level: u32
+}
+impl PanicLevel {
+    #[inline]
+    pub fn disabled() -> PanicLevel {
+        PanicLevel {
+            suppression_count: 0,
+            raw_level: 0
+        }
+    }
+    #[inline]
+    #[cfg(debug_assertions)]
+    pub fn current() -> PanicLevel {
+        PanicLevel {
+            raw_level: *ENV_PARSER_PANIC_LEVEL,
+            suppression_count: PARSER_PANIC_SUPPRESSIONS.with(|cell| cell.get())
+        }
+    }
+    #[inline]
+    #[cfg(not(debug_assertions))]
+    pub fn current() -> PanicLevel {
+        PanicLevel::disabled()
+    }
+    #[inline]
+    pub fn is_suppressed(self) -> bool {
+        self.suppression_count > 0
+    }
+    /// The level of verbrosity of the parser's panics,
+    /// or `0` if we shouldn't panic at all.
+    #[inline]
+    pub fn level(self) -> u32 {
+        if self.is_suppressed() { 0 } else { self.raw_level }
+    }
+    /// The raw level of vebrosity of the parser's panics,
+    /// ignoring whether or not we're suppressed.
+    #[inline]
+    pub fn raw_level(self) -> u32 {
+        self.raw_level
+    }
+}
+
 thread_local! {
     #[cfg(debug_assertions)]
     static PARSER_PANIC_SUPPRESSIONS: Cell<u32> = Cell::new(0);
@@ -48,23 +93,6 @@ lazy_static! {
         }
     };
 }
-/// The level of verbrosity of the parser's panics, or `0` if we shouldn't panic at all not at all
-#[cfg(debug_assertions)]
-#[inline]
-pub fn parser_panic_level() -> u32 {
-    if PARSER_PANIC_SUPPRESSIONS.with(|cell| cell.get()) > 0 {
-        // Someone is still suppressing our panics
-        0
-    } else {
-        *ENV_PARSER_PANIC_LEVEL
-    }
-}
-#[cfg(not(debug_assertions))]
-#[inline]
-pub fn parser_panic_level() -> u32 {
-    0
-}
-
 /// Suppress the parser's panics
 #[inline]
 #[cfg(debug_assertions)]
@@ -362,7 +390,7 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
         let start = start.into();
         let end = end.into();
         debug_assert_ne!(delimiter, end);
-        assert_eq!(self.pop(), &start);
+        self.expect(&start)?;
         let mut result = Vec::new();
         'parseLoop: loop {
             result.push(parser(self)?);
@@ -377,6 +405,22 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
                 _ => unreachable!()
             }
         }
+    }
+    /// Attempt to parse a value using the specified closure,
+    /// only advancing the stream if successful.
+    #[inline]
+    pub fn try_parse<F, R>(&mut self, func: F) -> Result<R, T::Err>
+        where F: FnOnce(&mut TokenStream<T>) -> Result<R, T::Err> {
+        with_panic_suppression(|| {
+            let old_token_index = self.token_index;
+            match func(self) {
+                Ok(value) => Ok(value),
+                Err(error) => {
+                    self.token_index = old_token_index;
+                    Err(error)
+                }
+            }
+        })
     }
     #[inline]
     pub fn peeking(&self) -> PeekingIter<T> {
@@ -438,19 +482,23 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
         match result {
             Ok(value) => Ok(value),
             Err(error) => {
-                match parser_panic_level() {
+                let level = PanicLevel::current();
+                match level.level() {
                     0 => Err(error),
                     1 => panic!("Parser error: `{:?}`", error),
                     _ => {
-                        let tokens = format!("[{}]",self.tokens.iter()
-                            .map(|&(location, ref token)| format!("    ({}, {:?})", location, token))
-                            .join(",\n")
-                        );
+                        let tokens = self.print_tokens();
                         panic!("Parser error `{:?}` @ {} with tokens {}", error, self.current_location(), tokens)
                     }
                 }
             }
         }
+    }
+    pub fn print_tokens(&self) -> String {
+        format!("[{}]",self.tokens.iter()
+            .map(|&(location, ref token)| format!("    ({}, {:?})", location, token))
+            .join(",\n")
+        )
     }
 }
 pub struct PeekingIter<'a, T: Token + 'a>(slice::Iter<'a, (Location, T)>);
