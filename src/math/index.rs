@@ -118,13 +118,10 @@ impl<T: NonZeroIndexType> Debug for NonZeroIndex<T> {
     }
 }
 impl<T: NonZeroIndexType> IntegerId for NonZeroIndex<T> {
-    type Storage = ();
     #[inline]
-    fn from_storage(_: Self::Storage, id: u64) -> Self {
+    fn from_id(id: u64) -> Self {
         Self::from(id)
     }
-    #[inline]
-    fn into_storage(self) -> Self::Storage {}
     #[inline]
     fn id(&self) -> u64 {
         self.0.get().id()

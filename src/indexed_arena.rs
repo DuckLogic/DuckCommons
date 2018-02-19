@@ -36,13 +36,10 @@ impl<T> ArenaIndex<T> {
 }
 // TODO: Allow deriving for structs with PhantomData
 impl<T> IntegerId for ArenaIndex<T> {
-    type Storage = ();
     #[inline(always)]
-    fn from_storage(_: (), id: u64) -> Self {
+    fn from_id(id: u64) -> Self {
         ArenaIndex::from(id)
     }
-    #[inline(always)]
-    fn into_storage(self) {}
     #[inline(always)]
     fn id(&self) -> u64 {
         self.index() as u64
