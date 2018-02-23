@@ -61,6 +61,8 @@ stdsimd = "^0.0.4"
 failure = "^0.1.1"
 # Backtraces
 backtrace = "^0.3.5"
+# Double ended vectors
+two-sided-vec = "^0.1.0"
 
 
 [dependencies.ordermap]

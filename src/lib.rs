@@ -53,6 +53,7 @@ extern crate memchr;
 #[macro_use]
 extern crate failure;
 extern crate backtrace;
+extern crate two_sided_vec;
 
 // We declare a fake `duckcommons` macro so the macros resolve `duckcommons` -_-
 mod duckcommons {
@@ -92,9 +93,11 @@ pub mod parse;
 
 pub use self::lazy::{AtomicLazy, Lazy};
 pub use self::collect::{
-    TwoSidedVec, SmallBitSet, SeaHashOrderMap, SliceCompare,
+    SmallBitSet, SeaHashOrderMap, SliceCompare,
     SeaHashOrderSet, VecMap, VecSet
 };
+#[deprecated(note = "Please import directly from `two_sided_vec`")]
+pub use two_sided_vec::TwoSidedVec;
 
 #[inline]
 pub fn cast_debug<T>(value: &T) -> Option<&Debug> {

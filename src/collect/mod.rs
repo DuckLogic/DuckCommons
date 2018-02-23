@@ -9,7 +9,6 @@ use seahash::SeaHasher;
 #[macro_use]
 pub mod macros;
 pub mod bitset;
-pub mod two_sided;
 pub mod vecmap;
 pub mod vecset;
 pub mod bulk;
@@ -17,7 +16,8 @@ pub mod compare;
 
 pub use self::compare::SliceCompare;
 pub use self::bitset::SmallBitSet;
-pub use self::two_sided::TwoSidedVec;
+#[deprecated(note = "Please import directly from `two_sided_vec`")]
+pub use two_sided_vec::TwoSidedVec;
 pub use self::vecmap::VecMap;
 pub use self::vecset::VecSet;
 
