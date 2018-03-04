@@ -42,6 +42,10 @@ impl<T: IdCounted> IdCounter<T> {
     }
     #[inline]
     pub fn reset(&self) {
-        self.0.set(T::zero());
+        self.set(T::zero());
+    }
+    #[inline]
+    pub fn set(&self, value: T) {
+        self.0.set(value)
     }
 }
