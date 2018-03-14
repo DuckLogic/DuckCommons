@@ -3,7 +3,8 @@ use std::fmt::{self, Debug, Formatter};
 use std::{slice, mem, iter};
 use super::insertion_sort_by;
 
-use itertools::PeekingNext;
+use itertools::{EitherOrBoth, PeekingNext};
+use itertools::EitherOrBoth::*;
 
 /// The threshold below which we prefer a linear search instead of a binary search.
 ///
@@ -147,6 +148,13 @@ impl<K: Ord, V> VecMap<K, V> {
             second: other.iter()
         }
     }
+    #[inline]
+    pub fn union<'a, 'b, B>(&'a self, other: &'b VecMap<K, B>) -> Union<'a, 'b, K, V, B> {
+        Union {
+            first: self.iter(),
+            second: other.iter()
+        }
+    }
 }
 /// Extend the map with the entries from the specified iterator.
 impl<K: Ord, V> Extend<(K, V)> for VecMap<K, V> {
@@ -158,12 +166,18 @@ impl<K: Ord, V> Extend<(K, V)> for VecMap<K, V> {
     }
 }
 pub struct Iter<'a, K: Ord + 'a, V: 'a>(slice::Iter<'a, (K, V)>);
+impl<'a, K: Ord + 'a, V: 'a> Clone for Iter<'a, K, V> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Iter(self.0.clone())
+    }
+}
 impl<'a, K: Ord + 'a, V: 'a> Iter<'a, K, V> {
     /// Internal backwards counterpart to `peeking_next`
     #[inline]
     fn peeking_next_back<F>(&mut self, mut accept: F) -> Option<(&'a K, &'a V)>
         where F: FnMut(&K, &V) -> bool {
-        let saved_state = Iter(self.0.clone());
+        let saved_state = self.clone();
         if let Some((key, value)) = self.next_back() {
             if !accept(key, value) {
                 *self = saved_state;
@@ -264,16 +278,13 @@ impl<'a, K: Ord + 'a, V: 'a> IntoIterator for &'a VecMap<K, V> {
     }
 }
 
-/// Iterates over the intersection of two `VecMap`s.
+/// Iterates over the union of two `VecMap`s.
 ///
-/// This only iterates over the keys that are present in *both* maps.
-/// Although the keys are guarenteed to be the same,
-/// the values may end up being different so we return both.
+/// This only iterates over the keys that are present in *either* map.
+/// The values are represented by the itertools `EitherOrBoth` enumeration.
 pub struct Intersection<'a, 'b, K: Ord + 'a + 'b, A: 'a, B: 'b> {
     first: Iter<'a, K, A>,
     second: Iter<'b, K, B>
-}
-impl<'a, 'b, K: Ord, A, B> Intersection<'a, 'b, K, A, B> {
 }
 impl<'a, 'b, K: Ord, A, B> Iterator for Intersection<'a, 'b, K, A, B> {
     type Item = (&'a K, &'a A, &'b B);
@@ -317,6 +328,72 @@ impl<'a, 'b, K: Ord, A, B> iter::DoubleEndedIterator for Intersection<'a, 'b, K,
     }
 }
 
+
+/// Iterates over the intersection of two `VecMap`s.
+///
+/// This only iterates over the keys that are present in *both* maps.
+/// Although the keys are guaranteed to be the same,
+/// the values may end up being different so we return both.
+pub struct Union<'a: 'b, 'b, K: Ord + 'a, A: 'a, B: 'b> {
+    first: Iter<'a, K, A>,
+    second: Iter<'b, K, B>
+}
+impl<'a: 'b, 'b, K: Ord + 'a, A: 'a, B: 'b> Iterator for Union<'a, 'b, K, A, B> {
+    type Item = (&'b K, EitherOrBoth<&'a A, &'b B>);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let old_state = self.first.clone();
+        if let Some((key, first)) = self.first.next() {
+            while let Some((other_key, second)) = self.second
+                .peeking_next(|&(other_key, _)| *other_key <= *key) {
+                if *other_key == *key {
+                    return Some((key, Both(first, second)))
+                } else {
+                    debug_assert!(*other_key < *key);
+                    self.first = old_state;
+                    return Some((other_key, Right(second)))
+                }
+            }
+            Some((key, Left(first)))
+        } else {
+            while let Some((key, value)) = self.second.next() {
+                return Some((key, Right(value)))
+            }
+            None
+        }
+    }
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.first.len().max(self.second.len()), self.first.len().checked_add(self.second.len()))
+    }
+}
+impl<'a: 'b, 'b, K: Ord + 'a, A, B> iter::FusedIterator for Union<'a, 'b, K, A, B> {}
+impl<'a: 'b, 'b, K: Ord + 'a, A: 'a, B: 'b> iter::DoubleEndedIterator for Union<'a, 'b, K, A, B> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let old_state = self.first.clone();
+        if let Some((key, first)) = self.first.next_back() {
+            while let Some((other_key, second)) = self.second
+                .peeking_next_back(|other_key, _| *other_key >= *key) {
+                if *other_key == *key {
+                    return Some((key, Both(first, second)))
+                } else {
+                    debug_assert!(*other_key > *key);
+                    self.first = old_state;
+                    return Some((other_key, Right(second)))
+                }
+            }
+            Some((key, Left(first)))
+        } else {
+            while let Some((key, value)) = self.second.next_back() {
+                return Some((key, Right(value)))
+            }
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -330,9 +407,53 @@ mod test {
         let mut second = VecMap::new();
         second.insert("food", 0);
         second.insert("shells", 15);
+        second.insert("poop", 13);
         let intersection = first.intersection(&second)
             .map(|(&key, &first, &second)| (key, first, second))
             .collect::<Vec<_>>();
-        assert_eq!(*intersection, *&[("food", 10, 0), ("shells", 3, 15)])
+        let reverse_intersection = first.intersection(&second)
+            .rev()
+            .map(|(&key, &first, &second)| (key, first, second))
+            .collect::<Vec<_>>();
+        assert_eq!(*intersection, *&[("food", 10, 0), ("shells", 3, 15)]);
+        assert_eq!(*reverse_intersection, *&[("shells", 3, 15), ("food", 10, 0)])
+
+    }
+    fn copied_both<A: Copy, B: Copy>(target: EitherOrBoth<&A, &B>) -> EitherOrBoth<A, B> {
+        match target {
+            Left(&left) => Left(left),
+            Right(&right) => Right(right),
+            Both(&left, &right) => Both(left, right)
+        }
+    }
+    #[test]
+    fn test_union() {
+        let mut first = VecMap::new();
+        first.insert("food", 10);
+        first.insert("tacos", 4);
+        first.insert("shells", 3);
+        first.insert("school", 10_000);
+        let mut second = VecMap::new();
+        second.insert("food", 0);
+        second.insert("shells", 15);
+        second.insert("poop", 13);
+        let union = first.union(&second)
+            .map(|(&key, entry)| (key, copied_both(entry)))
+            .collect::<Vec<_>>();
+        let reverse_union = first.union(&second)
+            .rev()
+            .map(|(&key, entry)| (key, copied_both(entry)))
+            .collect::<Vec<_>>();
+        let expected = vec![
+            ("food", Both(10, 0)),
+            ("poop", Right(13)),
+            ("school", Left(10_000)),
+            ("shells", Both(3, 15)),
+            ("tacos", Left(4))
+        ];
+        let expected_reversed = expected.iter().cloned()
+            .rev().collect::<Vec<_>>();
+        assert_eq!(*union, *expected);
+        assert_eq!(*reverse_union, *expected_reversed);
     }
 }
