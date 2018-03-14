@@ -3,6 +3,8 @@ use std::fmt::{self, Debug, Formatter};
 use std::{slice, mem, iter};
 use super::insertion_sort_by;
 
+use itertools::PeekingNext;
+
 /// The threshold below which we prefer a linear search instead of a binary search.
 ///
 /// Although binary searches are asymptotically more efficient for large sets,
@@ -138,6 +140,13 @@ impl<K: Ord, V> VecMap<K, V> {
     pub fn clear(&mut self) {
         self.0.clear()
     }
+    #[inline]
+    pub fn intersection<'a, 'b, B>(&'a self, other: &'b VecMap<K, B>) -> Intersection<'a, 'b, K, V, B> {
+        Intersection {
+            first: self.iter(),
+            second: other.iter()
+        }
+    }
 }
 /// Extend the map with the entries from the specified iterator.
 impl<K: Ord, V> Extend<(K, V)> for VecMap<K, V> {
@@ -149,6 +158,24 @@ impl<K: Ord, V> Extend<(K, V)> for VecMap<K, V> {
     }
 }
 pub struct Iter<'a, K: Ord + 'a, V: 'a>(slice::Iter<'a, (K, V)>);
+impl<'a, K: Ord + 'a, V: 'a> Iter<'a, K, V> {
+    /// Internal backwards counterpart to `peeking_next`
+    #[inline]
+    fn peeking_next_back<F>(&mut self, mut accept: F) -> Option<(&'a K, &'a V)>
+        where F: FnMut(&K, &V) -> bool {
+        let saved_state = Iter(self.0.clone());
+        if let Some((key, value)) = self.next_back() {
+            if !accept(key, value) {
+                *self = saved_state;
+                None
+            } else {
+                Some((key, value))
+            }
+        } else {
+            None
+        }
+    }
+}
 impl<'a, K: Ord + 'a, V: 'a> Iterator for Iter<'a, K, V> {
     type Item = (&'a K, &'a V);
 
@@ -165,6 +192,19 @@ impl<'a, K: Ord + 'a, V: 'a> Iterator for Iter<'a, K, V> {
 impl<'a, K: Ord + 'a, V: 'a> iter::FusedIterator for Iter<'a, K, V> {}
 impl<'a, K: Ord + 'a, V: 'a> iter::ExactSizeIterator for Iter<'a, K, V> {}
 unsafe impl<'a, K: Ord + 'a, V: 'a> iter::TrustedLen for Iter<'a, K, V> {}
+impl<'a, K: Ord + 'a, V: 'a> iter::DoubleEndedIterator for Iter<'a, K, V> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back().map(|&(ref key, ref value)| (key, value))
+    }
+}
+impl<'a, K: Ord + 'a, V: 'a> PeekingNext for Iter<'a, K, V> {
+    #[inline]
+    fn peeking_next<F>(&mut self, accept: F) -> Option<Self::Item> where F: FnOnce(&Self::Item) -> bool {
+        self.0.peeking_next(|&&(ref key, ref value)| accept(&(key, value)))
+            .map(|&(ref key, ref value)| (key, value))
+    }
+}
 
 pub struct Keys<'a, K: Ord + 'a, V: 'a>(slice::Iter<'a, (K, V)>);
 impl<'a, K: Ord + 'a, V: 'a> Iterator for Keys<'a, K, V> {
@@ -221,5 +261,78 @@ impl<'a, K: Ord + 'a, V: 'a> IntoIterator for &'a VecMap<K, V> {
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+/// Iterates over the intersection of two `VecMap`s.
+///
+/// This only iterates over the keys that are present in *both* maps.
+/// Although the keys are guarenteed to be the same,
+/// the values may end up being different so we return both.
+pub struct Intersection<'a, 'b, K: Ord + 'a + 'b, A: 'a, B: 'b> {
+    first: Iter<'a, K, A>,
+    second: Iter<'b, K, B>
+}
+impl<'a, 'b, K: Ord, A, B> Intersection<'a, 'b, K, A, B> {
+}
+impl<'a, 'b, K: Ord, A, B> Iterator for Intersection<'a, 'b, K, A, B> {
+    type Item = (&'a K, &'a A, &'b B);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some((key, first)) = self.first.next() {
+            while let Some((other_key, second)) = self.second
+                .peeking_next(|&(other_key, _)| *other_key <= *key) {
+                if *other_key == *key {
+                    return Some((key, first, second))
+                } else {
+                    // Ignore this key, since it couldn't possibly be in both maps
+                    debug_assert!(*other_key < *key);
+                }
+            }
+        }
+        None
+    }
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.first.len().min(self.second.len())))
+    }
+}
+impl<'a, 'b, K: Ord, A, B> iter::FusedIterator for Intersection<'a, 'b, K, A, B> {}
+impl<'a, 'b, K: Ord, A, B> iter::DoubleEndedIterator for Intersection<'a, 'b, K, A, B> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        while let Some((key, first)) = self.first.next_back() {
+            while let Some((other_key, second)) = self.second
+                .peeking_next_back(|other_key, _| *other_key >= *key) {
+                if *other_key == *key {
+                    return Some((key, first, second))
+                } else {
+                    // Ignore this key, since it couldn't possibly be in both maps
+                    debug_assert!(*other_key > *key);
+                }
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_intersection() {
+        let mut first = VecMap::new();
+        first.insert("food", 10);
+        first.insert("tacos", 4);
+        first.insert("shells", 3);
+        first.insert("school", 10_000);
+        let mut second = VecMap::new();
+        second.insert("food", 0);
+        second.insert("shells", 15);
+        let intersection = first.intersection(&second)
+            .map(|(&key, &first, &second)| (key, first, second))
+            .collect::<Vec<_>>();
+        assert_eq!(*intersection, *&[("food", 10, 0), ("shells", 3, 15)])
     }
 }
