@@ -73,6 +73,68 @@ impl DestructuringStyle {
     }
 }
 
+
+#[proc_macro_derive(Step)]
+pub fn step(input: TokenStream) -> TokenStream {
+    let text = input.to_string();
+    let start = Instant::now();
+    let ast = syn::parse_derive_input(&text).unwrap();
+    let tokens = impl_step(&ast);
+    debug_derive(start.elapsed(), "Step", &ast.ident, &tokens);
+    tokens.parse().unwrap()
+}
+
+fn impl_step(ast: &DeriveInput) -> quote::Tokens {
+    let name = &ast.ident;
+    if let Body::Struct(VariantData::Tuple(ref fields)) = ast.body {
+        assert_eq!(fields.len(), 1, "Unable to derive Step for {}, must have only one field", name);
+        match BasicType::determine(&fields[0].ty) {
+            Some(BasicType::MachineInteger(_)) | Some(BasicType::Integer(_)) => {
+                quote! {
+                    impl ::std::iter::Step for #name {
+                        #[inline]
+                        fn steps_between(start: &#name, end: &#name) -> Option<usize> {
+                            if *start <= *end {
+                                Some(end.0.wrapping_sub(start.0) as usize)
+                            } else {
+                                None
+                            }
+                        }
+
+                        #[inline]
+                        fn replace_one(&mut self) -> Self {
+                            ::std::mem::replace(self, #name(1))
+                        }
+
+                        #[inline]
+                        fn replace_zero(&mut self) -> Self {
+                            ::std::mem::replace(self, #name(0))
+                        }
+
+                        #[inline]
+                        fn add_one(&self) -> Self {
+                            #name(self.0 + 1)
+                        }
+
+                        #[inline]
+                        fn sub_one(&self) -> Self {
+                            #name(self.0 - 1)
+                        }
+
+                        #[inline]
+                        fn add_usize(&self, n: usize) -> Option<#name> {
+                            ::std::iter::Step::add_usize(&self.0, n).map(#name)
+                        }
+                    }
+                }
+            },
+            _ => panic!("Unable to derive Step for {}, invalid inner type {:?}", name, &fields[0].ty)
+        }
+    } else {
+        panic!("Unable to derive Step for {}, must be tuple struct", name)
+    }
+}
+
 #[proc_macro_derive(AutoError, attributes(error))]
 pub fn auto_error(input: TokenStream) -> TokenStream {
     let text = input.to_string();
@@ -523,6 +585,7 @@ impl ErrorConfiguration {
         })
     }
 }
+#[derive(Debug)]
 enum BasicType {
     /// A machine sized integer (usize) with the specified flag indicating if it's signed
     MachineInteger(bool),
@@ -536,6 +599,23 @@ lazy_static! {
     static ref INTEGER_PATTERN: Regex = Regex::new("([iu])(8|16|32|64|128)").unwrap();
 }
 impl BasicType {
+    #[allow(dead_code)]
+    fn name(&self) -> String {
+        match *self {
+            BasicType::MachineInteger(true) => "isize".to_owned(),
+            BasicType::MachineInteger(false) => "usize".to_owned(),
+            BasicType::Integer(0) => unreachable!("Invalid type: {:?}", self),
+            BasicType::Integer(width) => {
+                if width < 0 {
+                    format!("i{}", -width)
+                } else {
+                    format!("u{}", width)
+                }
+            },
+            BasicType::NamedType(ref name) => name.to_owned(),
+            BasicType::Option(ref inner) => format!("Option<{}>", inner.name()),
+        }
+    }
     fn determine(target: &Ty) -> Option<BasicType> {
         if let Ty::Path(None, ref path) = *target {
             if path.segments.len() == 1 {
