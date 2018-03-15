@@ -92,6 +92,17 @@ impl<K: Ord, V> VecMap<K, V> {
             None => None
         }
     }
+    #[inline]
+    pub fn entry(&mut self, key: K) -> Entry<K, V> {
+        match self.binary_search_by_key(&key) {
+            Ok(index) => Entry::Occupied(OccupiedEntry {
+                index, key, map: self
+            }),
+            Err(index) => Entry::Vacant(VacantEntry {
+                index, key, map: self
+            }),
+        }
+    }
     /// Drain the entire VecMap
     #[inline]
     pub fn drain(&mut self) -> ::std::vec::Drain<(K, V)> {
@@ -391,6 +402,76 @@ impl<'a: 'b, 'b, K: Ord + 'a, A: 'a, B: 'b> iter::DoubleEndedIterator for Union<
             }
             None
         }
+    }
+}
+
+pub enum Entry<'a, K: Ord + 'a, V: 'a> {
+    Vacant(VacantEntry<'a, K, V>),
+    Occupied(OccupiedEntry<'a, K, V>)
+}
+impl<'a, K: Ord + 'a, V: 'a> Entry<'a, K, V> {
+    #[inline]
+    pub fn or_insert(self, value: V) -> &'a mut V {
+        self.or_insert_with(|| value)
+    }
+    #[inline]
+    pub fn or_insert_with<F>(self, func: F) -> &'a mut V where F: FnOnce() -> V {
+        match self {
+            Entry::Occupied(entry) => entry.value(),
+            Entry::Vacant(entry) => entry.or_insert_with(func)
+        }
+    }
+}
+
+pub struct VacantEntry<'a, K: Ord + 'a, V: 'a> {
+    map: &'a mut VecMap<K, V>,
+    key: K,
+    index: usize,
+}
+impl<'a, K: Ord + 'a, V: 'a> VacantEntry<'a, K, V> {
+    #[inline]
+    pub fn key(&self) -> &K {
+        &self.key
+    }
+    #[inline]
+    pub fn insert(self, value: V) -> &'a mut V {
+        self.map.0.insert(self.index, (self.key, value));
+        &mut self.map.0[self.index].1
+    }
+    #[inline]
+    pub fn or_insert_with<F>(self, func: F) -> &'a mut V where F: FnOnce() -> V {
+        self.insert(func())
+    }
+}
+pub struct OccupiedEntry<'a, K: Ord + 'a, V: 'a> {
+    map: &'a mut VecMap<K, V>,
+    key: K,
+    index: usize,
+}
+impl<'a, K: Ord + 'a, V: 'a> OccupiedEntry<'a, K, V> {
+    #[inline]
+    pub fn key(&self) -> &K {
+        &self.key
+    }
+    #[inline]
+    pub fn value(self) -> &'a mut V {
+        &mut self.map.0[self.index].1
+    }
+    #[inline]
+    pub fn get(&self) -> &V {
+        &self.map.0[self.index].1
+    }
+    #[inline]
+    pub fn get_mut(&mut self) -> &mut V {
+        &mut self.map.0[self.index].1
+    }
+    #[inline]
+    pub fn insert(self, value: V) -> V {
+        mem::replace(self.value(), value)
+    }
+    #[inline]
+    pub fn remove(self) -> V {
+        self.map.0.remove(self.index).1
     }
 }
 
