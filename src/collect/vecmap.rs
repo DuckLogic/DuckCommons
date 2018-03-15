@@ -1,6 +1,7 @@
 use std::cmp::{Ord};
 use std::fmt::{self, Debug, Formatter};
 use std::{slice, mem, iter};
+use std::ops::{Index, IndexMut};
 use super::insertion_sort_by;
 
 use itertools::{EitherOrBoth, PeekingNext};
@@ -169,6 +170,21 @@ impl<K: Ord, V> VecMap<K, V> {
             first: self.iter(),
             second: other.iter()
         }
+    }
+}
+impl<K: Ord, V> Index<K> for VecMap<K, V> {
+    type Output = V;
+
+    #[inline]
+    fn index(&self, index: K) -> &Self::Output {
+        self.get(&index).unwrap_or_else(|| panic!("Missing key: {:?}", maybe_debug!(index)))
+    }
+}
+
+impl<K: Ord, V> IndexMut<K> for VecMap<K, V> {
+    #[inline]
+    fn index_mut(&mut self, index: K) -> &mut Self::Output {
+        self.get_mut(&index).unwrap_or_else(|| panic!("Missing key: {:?}", maybe_debug!(index)))
     }
 }
 /// Extend the map with the entries from the specified iterator.
