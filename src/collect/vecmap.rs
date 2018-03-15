@@ -79,6 +79,10 @@ impl<K: Ord, V> VecMap<K, V> {
             None => None
         }
     }
+    #[inline]
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.get(key).is_some()
+    }
     /// Lookup the value associated with the specified key in `O(log n)` time.
     #[inline]
     pub fn get(&self, key: &K) -> Option<&V> {
