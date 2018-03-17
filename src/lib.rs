@@ -20,6 +20,7 @@
     pattern, // We use the pattern API for parsing
     str_escape, // I think this is used for printing?
     option_filter, // Why isn't this already stable?
+    drain_filter, // Better alternative to retain
 )]
 extern crate petgraph;
 extern crate smallvec;
