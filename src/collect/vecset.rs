@@ -1,3 +1,4 @@
+use std::iter;
 use std::fmt::{self, Formatter, Debug};
 
 use super::VecMap;
@@ -32,6 +33,10 @@ impl<T: Ord> VecSet<T> {
     pub fn iter(&self) -> Iter<T> {
         self.0.keys()
     }
+    #[inline]
+    pub fn drain(&mut self) -> Drain<T> {
+        Drain(self.0.drain())
+    }
 
 }
 pub type Iter<'a, T> = super::vecmap::Keys<'a, T, ()>;
@@ -42,3 +47,32 @@ impl<T: Ord + Debug> Debug for VecSet<T> {
     }
 }
 
+pub struct Drain<'a, T: Ord + 'a>(::std::vec::Drain<'a, (T, ())>);
+impl<'a, T: Ord + 'a> Iterator for Drain<'a, T> {
+    type Item = T;
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(value, ())| value)
+    }
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+    #[inline]
+    fn count(self) -> usize where Self: Sized {
+        self.0.count()
+    }
+    #[inline]
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.0.nth(n).map(|(value, ())| value)
+    }
+}
+impl<'a, T: Ord + 'a> iter::DoubleEndedIterator for Drain<'a, T> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back().map(|(value, ())| value)
+    }
+}
+impl<'a, T: Ord + 'a> iter::ExactSizeIterator for Drain<'a, T> {}
+impl<'a, T: Ord + 'a> iter::FusedIterator for Drain<'a, T> {}
+unsafe impl<'a, T: Ord + 'a> iter::TrustedLen for Drain<'a, T> {}
