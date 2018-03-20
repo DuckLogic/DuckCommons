@@ -5,6 +5,7 @@ use super::VecMap;
 /// A set backed by a vector of sorted elements.
 ///
 /// This is a thin wrapper around a `VecMap`.
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Default)]
 pub struct VecSet<T: Ord>(VecMap<T, ()>);
 impl<T: Ord> VecSet<T> {
     #[inline]
