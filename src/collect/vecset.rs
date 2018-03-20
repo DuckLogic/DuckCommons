@@ -39,11 +39,60 @@ impl<T: Ord> VecSet<T> {
     }
 
 }
+impl<'a, T: Ord + 'a> IntoIterator for &'a VecSet<T> {
+    type Item = &'a T;
+    type IntoIter = Iter<'a, T>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+impl<T: Ord> IntoIterator for VecSet<T> {
+    type Item = T;
+    type IntoIter = IntoIter<T>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIter(self.0.into_iter())
+    }
+}
 pub type Iter<'a, T> = super::vecmap::Keys<'a, T, ()>;
 
 impl<T: Ord + Debug> Debug for VecSet<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         f.debug_set().entries(self.iter()).finish()
+    }
+}
+
+pub struct IntoIter<T: Ord>(::std::vec::IntoIter<(T, ())>);
+impl<T: Ord> Iterator for IntoIter<T> {
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(element, ())| element)
+    }
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+    #[inline]
+    fn count(self) -> usize where Self: Sized {
+        self.0.count()
+    }
+    #[inline]
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.0.nth(n).map(|(element, ())| element)
+    }
+}
+impl<T: Ord> iter::FusedIterator for IntoIter<T> {}
+impl<T: Ord> iter::ExactSizeIterator for IntoIter<T> {}
+unsafe impl<T: Ord> iter::TrustedLen for IntoIter<T> {}
+impl<T: Ord> iter::DoubleEndedIterator for IntoIter<T> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back().map(|(element, ())| element)
     }
 }
 
