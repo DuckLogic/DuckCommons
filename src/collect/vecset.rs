@@ -48,6 +48,14 @@ impl<T: Ord> VecSet<T> {
     pub fn drain(&mut self) -> Drain<T> {
         Drain(self.0.drain())
     }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 impl<'a, T: Ord + 'a> IntoIterator for &'a VecSet<T> {
     type Item = &'a T;
