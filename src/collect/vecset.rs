@@ -24,6 +24,17 @@ impl<T: Ord> VecSet<T> {
     pub fn insert(&mut self, element: T) -> bool {
         self.0.insert(element, ()).is_none()
     }
+    /// Removes the specified value from the set,
+    /// returning `true` if the value was present.
+    #[inline]
+    pub fn remove(&mut self, element: &T) -> bool {
+        self.take(element).is_some()
+    }
+    /// Removes the specified value from the set.
+    #[inline]
+    pub fn take(&mut self, element: &T) -> Option<T> {
+        self.0.remove_entry(element).map(|(element, ())| element)
+    }
     /// Check if the set contains the specified element.
     #[inline]
     pub fn contains(&self, element: &T) -> bool {
@@ -37,7 +48,6 @@ impl<T: Ord> VecSet<T> {
     pub fn drain(&mut self) -> Drain<T> {
         Drain(self.0.drain())
     }
-
 }
 impl<'a, T: Ord + 'a> IntoIterator for &'a VecSet<T> {
     type Item = &'a T;
