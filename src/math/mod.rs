@@ -1,5 +1,4 @@
 pub mod counter;
-pub mod index;
 
 use num_traits::PrimInt;
 

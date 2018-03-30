@@ -30,7 +30,7 @@ regex = "^0.2.2"
 # Implementations of Hash and Ord for floats
 ordered-float = { version = "^0.5.0", features = ["serde"] }
 # Fast integer id maps
-idmap = { version = "^0.2.6", features = ["serde", "petgraph"] }
+idmap = { version = "^0.2.12", features = ["serde", "petgraph"] }
 idmap-derive = "^0.1.1"
 # Arena allocation
 typed-arena = "^1.3.0"

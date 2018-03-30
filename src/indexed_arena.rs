@@ -5,12 +5,11 @@ use std::ptr::NonNull;
 use typed_arena::Arena;
 use std::iter::{FromIterator, TrustedLen};
 use std::ops::{Index, IndexMut};
-
-use math::index::NonZeroIndex;
+use std::num::NonZeroU16;
 use idmap::IntegerId;
 
 pub struct ArenaIndex<T> {
-    index: NonZeroIndex<u16>,
+    index: NonZeroU16,
     // NOTE: We use a *const T instead of just a T to indicate we don't own it
     phantom: PhantomData<*const T>
 }
@@ -24,12 +23,12 @@ impl<T> Clone for ArenaIndex<T> {
 impl<T> ArenaIndex<T> {
     #[inline]
     pub fn index(self) -> u16 {
-        self.index.index()
+        self.index.get() - 1
     }
     #[inline]
     pub fn offset(self, amount: u64) -> Self {
         ArenaIndex {
-            index: self.index.offset(amount),
+            index: NonZeroU16::new(((self.index.get() as u64) + amount) as u16).unwrap(),
             phantom: PhantomData
         }
     }
@@ -60,7 +59,7 @@ impl<T> From<u64> for ArenaIndex<T> {
     #[inline]
     fn from(index: u64) -> Self {
         ArenaIndex {
-            index: NonZeroIndex::from(index),
+            index: NonZeroU16::new((index as u16) + 1).unwrap(),
             phantom: PhantomData
         }
     }
@@ -69,7 +68,7 @@ impl<T> From<usize> for ArenaIndex<T> {
     #[inline]
     fn from(index: usize) -> Self {
         ArenaIndex {
-            index: NonZeroIndex::from(index),
+            index: NonZeroU16::new((index as u16) + 1).unwrap(),
             phantom: PhantomData
         }
     }
