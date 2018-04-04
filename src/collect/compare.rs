@@ -21,22 +21,19 @@ macro_rules! vector_slice_compare {
             // Yay, we get to use vector comparisons!
             let expected_vector = $vector::splat(expected_element);
             let mut remaining = self;
-            let unaligned_size = remaining.as_ptr().align_offset(mem::align_of::<$vector>());
-            if unaligned_size != 0 {
-                let (unaligned, newly_remaining) = remaining.split_at(unaligned_size);
-                for &value in unaligned {
-                    if value != expected_element {
-                        return false
-                    }
+            while !remaining.is_empty() &&
+                remaining.as_ptr().align_offset(mem::align_of::<$vector>()) != 0 {
+                if remaining[0] != expected_element {
+                    return false
                 }
-                remaining = newly_remaining;
+                remaining = &remaining[1..];
             }
             while remaining.len() >= $vector::lanes() {
                 let actual_vector = $vector::load_aligned(remaining);
-                if actual_vector != expected_vector {
+                if actual_vector.ne(expected_vector).any() {
                     return false
                 }
-                remaining = &remaining[..16];
+                remaining = &remaining[$vector::lanes()..];
             }
             for &value in remaining {
                 if value != expected_element {
