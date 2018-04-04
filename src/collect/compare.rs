@@ -1,3 +1,4 @@
+use std::mem;
 use stdsimd::simd::*;
 
 /// Utilities for comparing slices
@@ -15,39 +16,48 @@ default impl<T: PartialEq> SliceCompare<T> for [T] {
     }
 }
 macro_rules! vector_slice_compare {
-    ($target:ty, $vector:ident, $len:expr) => {
+    ($target:ty, $vector:ident) => {
         fn all_equal(&self, expected_element: $target) -> bool {
             // Yay, we get to use vector comparisons!
             let expected_vector = $vector::splat(expected_element);
-            let mut offset = 0;
-            while self.len() - offset >= $len {
-                let actual_vector = $vector::load(self, offset);
+            let mut remaining = self;
+            let unaligned_size = remaining.as_ptr().align_offset(mem::align_of::<$vector>());
+            if unaligned_size != 0 {
+                let (unaligned, newly_remaining) = remaining.split_at(unaligned_size);
+                for &value in unaligned {
+                    if value != expected_element {
+                        return false
+                    }
+                }
+                remaining = newly_remaining;
+            }
+            while remaining.len() >= $vector::lanes() {
+                let actual_vector = $vector::load_aligned(remaining);
                 if actual_vector != expected_vector {
                     return false
                 }
-                offset += $len;
+                remaining = &remaining[..16];
             }
-            while offset < self.len() {
-                if self[offset] != expected_element {
+            for &value in remaining {
+                if value != expected_element {
                     return false
                 }
-                offset += 1;
             }
             true
         }
     };
 }
 impl SliceCompare<u64> for [u64] {
-    vector_slice_compare!(u64, u64x8, 8);
+    vector_slice_compare!(u64, u64x8);
 }
 impl SliceCompare<u32> for [u32] {
-    vector_slice_compare!(u32, u32x16, 16);
+    vector_slice_compare!(u32, u32x16);
 }
 impl SliceCompare<u16> for [u16] {
-    vector_slice_compare!(u16, u16x32, 32);
+    vector_slice_compare!(u16, u16x32);
 }
 impl SliceCompare<u8> for [u8] {
-    vector_slice_compare!(u8, u8x64, 64);
+    vector_slice_compare!(u8, u8x64);
 }
 
 #[cfg(test)]

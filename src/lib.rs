@@ -22,6 +22,8 @@
     option_filter, // Why isn't this already stable?
     drain_filter, // Better alternative to retain
     exhaustive_patterns, // Needed to match exhaustively on the never type
+    stdsimd, // SIMD optimization
+    align_offset, // Needed to compute alignment for use with SIMD
 )]
 extern crate petgraph;
 extern crate smallvec;
