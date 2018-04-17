@@ -1,7 +1,6 @@
 #![feature(
     nonzero, // Needed for NonZeroIndex
     core, // Needed for NonZero
-    generic_param_attrs, // Needed for generic_param_attrs
     dropck_eyepatch, // Needed for custom collections
     const_fn, // I refuse to break encapsulation
     box_syntax, // This is much nicer than Box::new
