@@ -559,6 +559,8 @@ impl<'a> SimpleParser<'a> {
         self.remaining.len()
     }
     #[inline]
+    pub fn original(&self) -> &'a str { self.text }
+    #[inline]
     pub fn remaining(&self) -> &'a str {
         self.remaining
     }
