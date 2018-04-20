@@ -49,7 +49,6 @@ extern crate bincode;
 #[cfg(feature="lz4")]
 extern crate lz4;
 extern crate itertools;
-extern crate stdsimd;
 extern crate fixedbitset;
 extern crate regex;
 #[macro_use]

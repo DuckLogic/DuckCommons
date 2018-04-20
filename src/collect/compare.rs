@@ -1,5 +1,5 @@
 use std::mem;
-use stdsimd::simd::*;
+use std::simd::*;
 
 /// Utilities for comparing slices
 pub trait SliceCompare<T> {
