@@ -50,7 +50,7 @@ impl<T: Sync> AtomicLazy<T> {
     #[cold]
     unsafe fn load_fallback<F: FnOnce() -> T>(&self, loader: F) -> &T {
         self.once.call_once_force(|_| {
-            if !self.get().is_some() {
+            if self.get().is_none() {
                 if let Err((value, existing)) = self.try_initialize(loader()) {
                     panic!(
                         "Can't initialize with {:?} since already {:?}",

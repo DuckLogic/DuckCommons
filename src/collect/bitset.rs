@@ -159,7 +159,7 @@ impl<'a> BitSetEnumerate<'a> {
                     !word
                 };
                 self.current_word = Some((word_index * 64, word));
-                ((word_index, word))
+                (word_index, word)
             })
         })
     }
@@ -184,8 +184,8 @@ impl<'a> Iterator for BitSetEnumerate<'a> {
         None
     }
 }
-const STATIC_TRUE: &'static bool = &true;
-const STATIC_FALSE: &'static bool = &false;
+const STATIC_TRUE: &bool = &true;
+const STATIC_FALSE: &bool = &false;
 impl<A: Array<Item=u64>> Index<usize> for SmallBitSet<A> {
     type Output = bool;
     #[inline]

@@ -24,6 +24,10 @@
     stdsimd, // SIMD optimization
     align_offset, // Needed to compute alignment for use with SIMD
 )]
+#![cfg_attr(feature="cargo-clippy", allow(
+    type_complexity, // Sometimes I just like complex types ^_^
+    cast_lossless, // I disagree with this lint
+))]
 extern crate petgraph;
 extern crate smallvec;
 extern crate seahash;

@@ -6,7 +6,7 @@ use super::VecMap;
 /// A set backed by a vector of sorted elements.
 ///
 /// This is a thin wrapper around a `VecMap`.
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct VecSet<T: Ord>(VecMap<T, ()>);
 impl<T: Ord> VecSet<T> {
     #[inline]
@@ -55,6 +55,12 @@ impl<T: Ord> VecSet<T> {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+}
+impl<T: Ord> Default for VecSet<T> {
+    #[inline]
+    fn default() -> Self {
+        VecSet::new()
     }
 }
 impl<'a, T: Ord + 'a> IntoIterator for &'a VecSet<T> {

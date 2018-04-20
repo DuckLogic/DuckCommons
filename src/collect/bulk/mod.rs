@@ -130,6 +130,13 @@ impl<T> FromIterator<(usize, T)> for InsertionSet<T> {
         iter.into_iter().map(Insertion::from).collect()
     }
 }
+impl<T> Default for InsertionSet<T> {
+    #[inline]
+    fn default() -> Self {
+        InsertionSet::new()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

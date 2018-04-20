@@ -23,7 +23,7 @@ const LINEAR_SEARCH_THRESHOLD: usize = 8;
 /// which is very fast for a small number of elements.
 /// However for large maps the `O(1)` lookup performance of a hashmap beats a `VecMap`,
 /// even with the hashing overhead included.
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct VecMap<K: Ord, V>(Vec<(K, V)>);
 impl<K: Ord, V> VecMap<K, V> {
     #[inline]
@@ -37,14 +37,11 @@ impl<K: Ord, V> VecMap<K, V> {
     pub fn from_vector(mut target: Vec<(K, V)>, allow_duplicates: bool) -> Self {
         target.sort_by(|&(ref first_key, _), &(ref second_key, _)| first_key.cmp(second_key));
         if !allow_duplicates {
-            match ::collect::find_duplicates_by(&target, |&(ref first_key, _), &(ref second_key, _)| first_key == second_key) {
-                Some(((_, &(ref key, ref first)), (_, &(_, ref second)))) => {
-                    panic!(
-                        "Duplicate entries for {:?}: {:?} and {:?}",
-                        maybe_debug!(key), maybe_debug!(first), maybe_debug!(second)
-                    )
-                },
-                None => {}
+            if let Some(((_, &(ref key, ref first)), (_, &(_, ref second)))) = ::collect::find_duplicates_by(&target, |&(ref first_key, _), &(ref second_key, _)| first_key == second_key) {
+                panic!(
+                    "Duplicate entries for {:?}: {:?} and {:?}",
+                    maybe_debug!(key), maybe_debug!(first), maybe_debug!(second)
+                )
             }
         } else {
             target.dedup_by(|&mut (ref first_key, _), &mut (ref second_key, _)| first_key == second_key);
@@ -190,6 +187,12 @@ impl<K: Ord, V> Index<K> for VecMap<K, V> {
     #[inline]
     fn index(&self, index: K) -> &Self::Output {
         self.get(&index).unwrap_or_else(|| panic!("Missing key: {:?}", maybe_debug!(index)))
+    }
+}
+impl<K: Ord, V> Default for VecMap<K, V> {
+    #[inline]
+    fn default() -> Self {
+        VecMap::new()
     }
 }
 
@@ -388,22 +391,20 @@ impl<'a: 'b, 'b, K: Ord + 'a, A: 'a, B: 'b> Iterator for Union<'a, 'b, K, A, B> 
     fn next(&mut self) -> Option<Self::Item> {
         let old_state = self.first.clone();
         if let Some((key, first)) = self.first.next() {
-            while let Some((other_key, second)) = self.second
-                .peeking_next(|&(other_key, _)| *other_key <= *key) {
-                if *other_key == *key {
-                    return Some((key, Both(first, second)))
-                } else {
+            match self.second.peeking_next(|&(other_key, _)| *other_key <= *key) {
+                Some((other_key, second)) if *other_key == *key => Some((key, Both(first, second))),
+                Some((other_key, second)) => {
                     debug_assert!(*other_key < *key);
                     self.first = old_state;
                     return Some((other_key, Right(second)))
-                }
+                },
+                None => Some((key, Left(first)))
             }
-            Some((key, Left(first)))
         } else {
-            while let Some((key, value)) = self.second.next() {
-                return Some((key, Right(value)))
+            match self.second.next() {
+                Some((key, value)) => Some((key, Right(value))),
+                None => None
             }
-            None
         }
     }
     #[inline]
@@ -417,22 +418,20 @@ impl<'a: 'b, 'b, K: Ord + 'a, A: 'a, B: 'b> iter::DoubleEndedIterator for Union<
     fn next_back(&mut self) -> Option<Self::Item> {
         let old_state = self.first.clone();
         if let Some((key, first)) = self.first.next_back() {
-            while let Some((other_key, second)) = self.second
-                .peeking_next_back(|other_key, _| *other_key >= *key) {
-                if *other_key == *key {
-                    return Some((key, Both(first, second)))
-                } else {
+            match self.second.peeking_next_back(|other_key, _| *other_key >= *key) {
+                Some((other_key, second)) if *other_key == *key => Some((key, Both(first, second))),
+                Some((other_key, second)) => {
                     debug_assert!(*other_key > *key);
                     self.first = old_state;
                     return Some((other_key, Right(second)))
-                }
+                },
+                None => Some((key, Left(first)))
             }
-            Some((key, Left(first)))
         } else {
-            while let Some((key, value)) = self.second.next_back() {
-                return Some((key, Right(value)))
+            match self.second.next_back() {
+                Some((key, value)) => Some((key, Right(value))),
+                None => None
             }
-            None
         }
     }
 }

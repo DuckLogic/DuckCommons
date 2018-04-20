@@ -125,6 +125,10 @@ impl Span {
         Span { start, end }
     }
     #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.end == self.start
+    }
+    #[inline]
     pub fn len(&self) -> usize {
         debug_assert!(self.start <= self.end);
         self.end - self.start
@@ -428,8 +432,9 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
     }
     /// Find the distance until the specified token occurs, or `None` if it isn't found
     #[inline]
-    pub fn find(&self, target: T) -> Option<usize> {
-        self.peeking().position(|token| *token == target)
+    pub fn find<U: Borrow<T>>(&self, target: U) -> Option<usize> {
+        let target = target.borrow();
+        self.peeking().position(|token| *token == *target)
     }
     /// Find the ending of the specified start token, allowing arbitrary nesting.
     #[inline]
@@ -955,6 +960,7 @@ impl Display for Location {
 impl Add for Location {
     type Output = Location;
 
+    #[cfg_attr(feature = "cargo-clippy", allow(suspicious_arithmetic_impl))]
     fn add(self, rhs: Location) -> Self::Output {
         Location {
             multiline: self.multiline | rhs.multiline,

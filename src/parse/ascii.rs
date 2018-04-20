@@ -174,7 +174,6 @@ pub unsafe trait AsciiPattern: Sized where for<'a> Self::Unicode: Pattern<'a> {
     }
 
     /// Convert this ASCII pattern into an equivelant stdlib pattern
-    #[inline]
     fn into_std(self) -> Self::Unicode;
 }
 

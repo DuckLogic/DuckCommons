@@ -13,11 +13,8 @@ pub trait CheckedMath<T: Copy = Self>: Copy {
     fn cast(target: T) -> Result<T, OverflowError> {
         Ok(target)
     }
-    #[inline]
     fn add(self, other: T) -> Result<Self, OverflowError>;
-    #[inline]
     fn sub(self, other: T) -> Result<Self, OverflowError>;
-    #[inline]
     fn mul(self, other: T) -> Result<Self, OverflowError>;
 }
 impl<T: PrimInt> CheckedMath for T {

@@ -12,7 +12,7 @@ impl IdCounted for u64 {}
 impl IdCounted for usize {}
 impl IdCounted for u32 {}
 impl IdCounted for u16 {}
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct IdCounter<T: IdCounted = usize>(Cell<T>);
 impl<T: IdCounted> IdCounter<T> {
     #[inline]
@@ -47,5 +47,11 @@ impl<T: IdCounted> IdCounter<T> {
     #[inline]
     pub fn set(&self, value: T) {
         self.0.set(value)
+    }
+}
+impl<T: IdCounted> Default for IdCounter<T> {
+    #[inline]
+    fn default() -> Self {
+        IdCounter::new()
     }
 }
