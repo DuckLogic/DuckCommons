@@ -23,6 +23,7 @@
     exhaustive_patterns, // Needed to match exhaustively on the never type
     stdsimd, // SIMD optimization
     align_offset, // Needed to compute alignment for use with SIMD
+    unreachable, // Unsafe micro-optimization
 )]
 #![cfg_attr(feature="cargo-clippy", allow(
     type_complexity, // Sometimes I just like complex types ^_^
@@ -66,6 +67,7 @@ mod duckcommons {
     pub use super::*;
 }
 
+use std::mem;
 use std::fmt::{Debug};
 use std::error::Error;
 
@@ -216,6 +218,56 @@ pub fn display_panic_message(dynamic: Box<::std::any::Any + Send + 'static>) -> 
                 Ok(message) => (*message).to_owned(),
                 Err(_) => "<UNKNOWN PANIC MESSAGE>".to_owned()
             }
+        }
+    }
+}
+
+pub trait OptionExt<T> {
+    /// Initialize this option with the specified value,
+    /// panicking if it isn't already `None`
+    fn initialize(&mut self, value: T) -> &mut T;
+    #[inline]
+    fn unwrap_none(&self) {
+        self.expect_none("Expected None")
+    }
+    fn expect_none(&self, msg: &str);
+    unsafe fn unchecked_unwrap(self) -> T;
+    unsafe fn unchecked_unwrap_none(self);
+}
+impl<T> OptionExt<T> for Option<T> {
+    #[inline]
+    fn initialize(&mut self, value: T) -> &mut T {
+        if self.is_none() {
+            *self = Some(value);
+            self.as_mut().unwrap()
+        } else {
+            panic!(
+                "Unable to initialize {:?} with {:?}",
+                maybe_debug!(self), maybe_debug!(value)
+            )
+        }
+    }
+
+    #[inline]
+    fn expect_none(&self, msg: &str) {
+        if let Some(ref value) = *self {
+            panic!("{}: {:?}", msg, maybe_debug!(value))
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn unchecked_unwrap(self) -> T {
+        match self {
+            None => mem::unreachable(),
+            Some(value) => value,
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn unchecked_unwrap_none(self) {
+        match self {
+            None => {},
+            Some(_) => mem::unreachable(),
         }
     }
 }
