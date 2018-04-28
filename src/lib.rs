@@ -23,7 +23,6 @@
     exhaustive_patterns, // Needed to match exhaustively on the never type
     stdsimd, // SIMD optimization
     align_offset, // Needed to compute alignment for use with SIMD
-    unreachable, // Unsafe micro-optimization
 )]
 #![cfg_attr(feature="cargo-clippy", allow(
     type_complexity, // Sometimes I just like complex types ^_^
@@ -67,7 +66,7 @@ mod duckcommons {
     pub use super::*;
 }
 
-use std::mem;
+use std::hint;
 use std::fmt::{Debug};
 use std::error::Error;
 
@@ -258,7 +257,7 @@ impl<T> OptionExt<T> for Option<T> {
     #[inline(always)]
     unsafe fn unchecked_unwrap(self) -> T {
         match self {
-            None => mem::unreachable(),
+            None => hint::unreachable_unchecked(),
             Some(value) => value,
         }
     }
@@ -267,7 +266,7 @@ impl<T> OptionExt<T> for Option<T> {
     unsafe fn unchecked_unwrap_none(self) {
         match self {
             None => {},
-            Some(_) => mem::unreachable(),
+            Some(_) => hint::unreachable_unchecked(),
         }
     }
 }

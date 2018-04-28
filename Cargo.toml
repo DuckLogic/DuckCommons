@@ -72,3 +72,7 @@ path = "derive"
 
 [workspace]
 
+[patch.crates-io]
+# TODO: Use upstream once they merge sfacker/rust-phf#122
+phf = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-4-28-2018" }
+phf_macros = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-4-28-2018" }
