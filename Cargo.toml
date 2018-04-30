@@ -25,6 +25,8 @@ seahash = "^3.0.5"
 # Serde serialization
 serde = { version = "^1.0.11", features = ["rc", "unstable"] }
 serde_derive = "^1.0.11"
+erased-serde = "^0.3.3"
+serde_json = "^1.0.16"
 # Fast regexes
 regex = "^0.2.2"
 # Implementations of Hash and Ord for floats
@@ -61,7 +63,8 @@ failure = "^0.1.1"
 backtrace = "^0.3.5"
 # Double ended vectors
 two-sided-vec = "^0.1.0"
-
+# Structured logging
+slog = { version = "^2.1.1", features = ["nested-values"] }
 
 [dependencies.ordermap]
 version = "^0.3.5"

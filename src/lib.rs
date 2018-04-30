@@ -40,6 +40,8 @@ extern crate serde;
 extern crate num_traits;
 #[macro_use]
 extern crate serde_derive;
+extern crate erased_serde;
+extern crate serde_json;
 extern crate idmap;
 extern crate parking_lot;
 #[macro_use]
@@ -60,6 +62,7 @@ extern crate memchr;
 extern crate failure;
 extern crate backtrace;
 extern crate two_sided_vec;
+extern crate slog;
 
 // We declare a fake `duckcommons` macro so the macros resolve `duckcommons` -_-
 mod duckcommons {
@@ -97,6 +100,7 @@ pub mod lazy;
 pub mod serialize;
 pub mod ptr;
 pub mod parse;
+pub mod logging;
 
 pub use self::lazy::{AtomicLazy, Lazy};
 pub use self::collect::{
@@ -105,6 +109,7 @@ pub use self::collect::{
 };
 #[deprecated(note = "Please import directly from `two_sided_vec`")]
 pub use two_sided_vec::TwoSidedVec;
+pub use logging::SerializeValue;
 
 #[inline]
 pub fn cast_debug<T>(value: &T) -> Option<&Debug> {
