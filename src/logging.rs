@@ -9,6 +9,7 @@ use serde::Serialize;
 pub struct SerializeValue<T: Debug + Serialize>(pub T);
 
 impl<T: Debug + Serialize> ::slog::Value for SerializeValue<T> {
+    #[inline]
     fn serialize(&self, _record: &::slog::Record, key: ::slog::Key, serializer: &mut ::slog::Serializer) -> ::slog::Result {
         serializer.emit_serde(key, self)
     }

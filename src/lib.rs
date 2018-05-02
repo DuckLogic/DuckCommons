@@ -23,6 +23,7 @@
     exhaustive_patterns, // Needed to match exhaustively on the never type
     stdsimd, // SIMD optimization
     align_offset, // Needed to compute alignment for use with SIMD
+    macro_lifetime_matcher, // Needed for magic macro impls
 )]
 #![cfg_attr(feature="cargo-clippy", allow(
     type_complexity, // Sometimes I just like complex types ^_^

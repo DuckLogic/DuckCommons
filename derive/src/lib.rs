@@ -135,6 +135,52 @@ fn impl_step(ast: &DeriveInput) -> quote::Tokens {
     }
 }
 
+/// Implement `slog::SerdeValue` on the specified type by delegating to `SerializeValue`
+#[proc_macro_derive(SerdeValue, attributes(serialize_fallback))]
+pub fn serde_value(input: TokenStream) -> TokenStream {
+    let text = input.to_string();
+    let start = Instant::now();
+    let ast = syn::parse_derive_input(&text).unwrap();
+    let tokens = impl_serde_value(&ast);
+    debug_derive(start.elapsed(), "SerdeValue", &ast.ident, &tokens);
+    tokens.parse().unwrap()
+}
+
+fn impl_serde_value(ast: &DeriveInput) -> ::quote::Tokens {
+    let target_name = &ast.ident;
+    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
+    let serialize_fallback = match ast.attrs.iter()
+        .find(|p| p.name() == "serialize_fallback") {
+        None => String::from(r##"format!("{:?}", self)"##),
+        Some(&Attribute { value: MetaItem::NameValue(_, Lit::Str(ref value, _)), .. }) => value.clone(),
+        Some(attribute) => panic!("Invalid attribute: {:?}", attribute)
+    };
+    quote! {
+        impl #impl_generics ::slog::Value for #target_name #ty_generics #where_clause {
+            #[inline]
+            fn serialize(&self, _record: &::slog::Record, key: ::slog::Key, serializer: &mut ::slog::Serializer) -> ::slog::Result {
+                serializer.emit_serde(key, self)
+            }
+        }
+        impl #impl_generics ::slog::SerdeValue for #target_name #ty_generics #where_clause {
+            fn serialize_fallback(&self, key: ::slog::Key, serializer: &mut ::slog::Serializer) -> ::slog::Result {
+                let value = #serialize_fallback;
+                serializer.emit_str(key, &*value)
+            }
+
+            #[inline]
+            fn as_serde(&self) -> &::erased_serde::Serialize {
+                self
+            }
+            #[inline]
+            fn to_sendable(&self) -> Box<::slog::SerdeValue + Send + 'static> {
+                let value = ::duckcommons::SerializeValue(self);
+                ::slog::SerdeValue::to_sendable(&value)
+            }
+        }
+    }
+}
+
 #[proc_macro_derive(AutoError, attributes(error))]
 pub fn auto_error(input: TokenStream) -> TokenStream {
     let text = input.to_string();
