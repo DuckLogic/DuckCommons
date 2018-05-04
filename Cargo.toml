@@ -45,8 +45,8 @@ memchr = "^1.0.1"
 # Bitset library needed for petgraph
 fixedbitset = "^0.1.8"
 # Compile time maps
-phf = "^0.7.21"
-phf_macros = "^0.7.21"
+phf = "^0.7.22"
+phf_macros = "^0.7.22"
 # Better concurrency primitives
 parking_lot = { version = "^0.4.8", features = ["nightly"] }
 # Generic traits for numbers
@@ -74,8 +74,3 @@ features = ["serde-1",]
 path = "derive"
 
 [workspace]
-
-[patch.crates-io]
-# TODO: Use upstream once they merge sfacker/rust-phf#122
-phf = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-4-28-2018" }
-phf_macros = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-4-28-2018" }
