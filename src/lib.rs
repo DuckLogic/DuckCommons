@@ -24,6 +24,7 @@
     stdsimd, // SIMD optimization
     align_offset, // Needed to compute alignment for use with SIMD
     macro_lifetime_matcher, // Needed for magic macro impls
+    proc_macro, proc_macro_non_items, // Needed for strip_expr_nesting
 )]
 #![cfg_attr(feature="cargo-clippy", allow(
     type_complexity, // Sometimes I just like complex types ^_^
@@ -91,6 +92,7 @@ macro_rules! maybe_debug {
     });
 }
 
+mod macros;
 pub mod collect;
 pub mod math;
 pub mod arena_set;

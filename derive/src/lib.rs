@@ -1,8 +1,9 @@
-#![feature(box_patterns, box_syntax)]
+#![feature(box_patterns, box_syntax, proc_macro)]
 #![allow(unused_variables)] // The compiler doesn't know when quote! uses variables :(
 #![allow(dead_code)] // TODO: Cleanup
 #![recursion_limit = "1024"]
 extern crate proc_macro;
+#[macro_use]
 extern crate syn;
 #[macro_use]
 extern crate quote;
@@ -20,9 +21,10 @@ use proc_macro::TokenStream;
 use syn::{
     DeriveInput, Data, Lit, Attribute, Path, Type, PathArguments, AngleBracketedGenericArguments,
     Field, Ident, Fields, Meta, NestedMeta, DataEnum, DataStruct, GenericArgument,
-    MetaList, MetaNameValue, TypePath
+    MetaList, MetaNameValue, TypePath, Expr
 };
 use quote::ToTokens;
+use syn::synom::{Synom};
 use std::process::{Stdio, Command};
 
 /*
@@ -76,6 +78,60 @@ impl DestructuringStyle {
     }
 }
 
+/// Strips nested arrays in the form `[1, [2, [3, []]]]` into `[1, 2, 3]`.
+///
+/// These are often common when generating a list of expressions from recursive macro invocations.
+#[proc_macro]
+pub fn strip_expr_nesting(input: TokenStream) -> TokenStream {
+    let start = Instant::now();
+    let expr_nesting = syn::parse(input.clone())
+        .unwrap_or_else(|e| panic!("Invalid invoation strip_expr_nesting!({}): {}", input, e));
+    let tokens = impl_strip_expr_nesting(&expr_nesting);
+    debug_macro(start.elapsed(), "strip_expr_nesting", input, &tokens);
+    tokens.into()
+}
+fn impl_strip_expr_nesting(input: &MaybeExprNesting) -> quote::Tokens {
+    let exprs = input.as_exprs();
+    quote!([#(#exprs),*])
+}
+#[derive(Debug)]
+struct MaybeExprNesting(Option<Box<ExprNesting>>);
+impl MaybeExprNesting {
+    fn as_exprs(&self) -> Vec<&Expr> {
+        let mut result = Vec::new();
+        if let Some(ref nesting) = self.0 {
+            nesting.push_exprs(&mut result);
+        }
+        result
+    }
+}
+impl Synom for MaybeExprNesting {
+    named!(parse -> Self, alt!(
+        syn!(ExprNesting) => { |nesting| MaybeExprNesting(Some(box nesting)) } |
+        brackets!(epsilon!()) => { |_| MaybeExprNesting(None) }
+    ));
+}
+#[derive(Debug)]
+struct ExprNesting {
+    first: Expr,
+    other: MaybeExprNesting
+}
+impl ExprNesting {
+    fn push_exprs<'a>(&'a self, target: &mut Vec<&'a Expr>) {
+        target.push(&self.first);
+        if let Some(ref other) = self.other.0 {
+            other.push_exprs(target);
+        }
+    }
+}
+impl Synom for ExprNesting {
+    named!(parse -> Self, map!(brackets!(do_parse!(
+        first: syn!(Expr) >>
+        punct!(,) >>
+        other: syn!(MaybeExprNesting) >>
+        (ExprNesting { first, other })
+    )), |(_, nesting)| nesting));
+}
 
 #[proc_macro_derive(Step)]
 pub fn step(input: TokenStream) -> TokenStream {
@@ -570,10 +626,16 @@ fn create_tokens<T>(target: &T) -> ::quote::Tokens where T: ::quote::ToTokens {
     tokens
 }
 fn debug_derive(duration: Duration, name: &str, ident: &Ident, tokens: &quote::Tokens) {
-    match env::var("DEBUG_DERIVE") {
+    debug_macro_raw(duration, name, &format!("derive({}) for {}", name, ident), tokens)
+}
+fn debug_macro(duration: Duration, name: &str, input: TokenStream, tokens: &quote::Tokens) {
+    debug_macro_raw(duration, name, &format!("{}!({})", name, input), tokens)
+}
+fn debug_macro_raw(duration: Duration, name: &str, id: &str, tokens: &quote::Tokens) {
+    match env::var("DEBUG_MACRO") {
         Ok(target) => {
             if target == name {
-                println!("derive({}) for {}:", name, ident);
+                println!("{}:", id);
                 let indent = " ".repeat(2);
                 let code = match rustfmt(&tokens.to_string()) {
                     Ok(Some(formatted)) => formatted,
@@ -591,10 +653,10 @@ fn debug_derive(duration: Duration, name: &str, ident: &Ident, tokens: &quote::T
         Err(VarError::NotPresent) => {},
         Err(VarError::NotUnicode(_)) => panic!("Invalid unicode for DEBUG_DERIVE!")
     }
-    match env::var("PROFILE_DERIVE") {
+    match env::var("PROFILE_MACRO") {
         Ok(target) => {
             if target == "1" || target == name {
-                println!("derive({}) for {}: {} ms", name, ident, milliseconds(duration))
+                println!("{}: {} ms", id, milliseconds(duration))
             }
         },
         Err(VarError::NotPresent) => {},

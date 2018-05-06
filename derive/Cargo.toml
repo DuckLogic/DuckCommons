@@ -12,3 +12,4 @@ syn = { version = "^0.13.7", features = ["extra-traits"] }
 quote = "^0.5.2"
 regex = "^1"
 lazy_static = "^1"
+proc-macro2 = { version = "0.3", features = ["nightly"] }
