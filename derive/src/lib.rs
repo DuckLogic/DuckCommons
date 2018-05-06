@@ -1,5 +1,6 @@
 #![feature(box_patterns, box_syntax)]
 #![allow(unused_variables)] // The compiler doesn't know when quote! uses variables :(
+#![allow(dead_code)] // TODO: Cleanup
 #![recursion_limit = "1024"]
 extern crate proc_macro;
 extern crate syn;
@@ -17,9 +18,11 @@ use std::time::{Instant, Duration};
 use regex::Regex;
 use proc_macro::TokenStream;
 use syn::{
-    DeriveInput, Body, Lit, VariantData, Attribute, MetaItem, NestedMetaItem, Ty, PathParameters,
-    Field, Ident
+    DeriveInput, Data, Lit, Attribute, Path, Type, PathArguments, AngleBracketedGenericArguments,
+    Field, Ident, Fields, Meta, NestedMeta, DataEnum, DataStruct, GenericArgument,
+    MetaList, MetaNameValue, TypePath
 };
+use quote::ToTokens;
 use std::process::{Stdio, Command};
 
 /*
@@ -28,10 +31,10 @@ use std::process::{Stdio, Command};
  * !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
  */
 
-fn destructure_each<F>(target: &VariantData, mut func: F) -> quote::Tokens
+fn destructure_each<F>(fields: &Fields, mut func: F) -> quote::Tokens
     where F: FnMut(&Field) -> DestructuringStyle {
-    match *target {
-        VariantData::Struct(ref fields) => {
+    match *fields {
+        Fields::Named(_) => {
             let destructuring = fields.iter().map(|field| {
                 let name = field.ident.as_ref().unwrap();
                 let style = func(field).create();
@@ -39,15 +42,15 @@ fn destructure_each<F>(target: &VariantData, mut func: F) -> quote::Tokens
             }).collect::<Vec<_>>();
             quote! { { #(#destructuring,)* } }
         },
-        VariantData::Tuple(ref fields) => {
+        Fields::Unnamed(_) => {
             let destructuring = fields.iter().enumerate().map(|(id, field)| {
-                let ident = Ident::new(format!("value_{}", id));
+                let ident = Ident::from(format!("value_{}", id));
                 let style = func(field).create();
                 quote!(#style #ident)
             }).collect::<Vec<_>>();
             quote! { (#(#destructuring),*) }
         },
-        VariantData::Unit => quote!()
+        Fields::Unit => quote!()
     }
 }
 
@@ -60,7 +63,7 @@ enum DestructuringStyle {
 }
 impl DestructuringStyle {
     #[inline]
-    fn destructure(&self, variant: &VariantData) -> quote::Tokens {
+    fn destructure(&self, variant: &Fields) -> quote::Tokens {
         destructure_each(variant, |_| *self)
     }
     #[inline]
@@ -76,19 +79,18 @@ impl DestructuringStyle {
 
 #[proc_macro_derive(Step)]
 pub fn step(input: TokenStream) -> TokenStream {
-    let text = input.to_string();
     let start = Instant::now();
-    let ast = syn::parse_derive_input(&text).unwrap();
+    let ast = syn::parse(input).unwrap();
     let tokens = impl_step(&ast);
     debug_derive(start.elapsed(), "Step", &ast.ident, &tokens);
-    tokens.parse().unwrap()
+    tokens.into()
 }
 
 fn impl_step(ast: &DeriveInput) -> quote::Tokens {
     let name = &ast.ident;
-    if let Body::Struct(VariantData::Tuple(ref fields)) = ast.body {
-        assert_eq!(fields.len(), 1, "Unable to derive Step for {}, must have only one field", name);
-        match BasicType::determine(&fields[0].ty) {
+    if let Data::Struct(DataStruct { fields: ref fields @ Fields::Unnamed(_), .. }) = ast.data {
+        assert_eq!(fields.iter().len(), 1, "Unable to derive Step for {}, must have only one field", name);
+        match BasicType::determine(&fields.iter().nth(0).unwrap().ty) {
             Some(BasicType::MachineInteger(_)) | Some(BasicType::Integer(_)) => {
                 quote! {
                     impl ::std::iter::Step for #name {
@@ -128,7 +130,12 @@ fn impl_step(ast: &DeriveInput) -> quote::Tokens {
                     }
                 }
             },
-            _ => panic!("Unable to derive Step for {}, invalid inner type {:?}", name, &fields[0].ty)
+            _ => {
+                panic!(
+                    "Unable to derive Step for {}, invalid inner type {:?}",
+                    name, &fields.iter().nth(0).unwrap().ty
+                )
+            }
         }
     } else {
         panic!("Unable to derive Step for {}, must be tuple struct", name)
@@ -138,22 +145,26 @@ fn impl_step(ast: &DeriveInput) -> quote::Tokens {
 /// Implement `slog::SerdeValue` on the specified type by delegating to `SerializeValue`
 #[proc_macro_derive(SerdeValue, attributes(serialize_fallback))]
 pub fn serde_value(input: TokenStream) -> TokenStream {
-    let text = input.to_string();
     let start = Instant::now();
-    let ast = syn::parse_derive_input(&text).unwrap();
+    let ast = syn::parse(input).unwrap();
     let tokens = impl_serde_value(&ast);
     debug_derive(start.elapsed(), "SerdeValue", &ast.ident, &tokens);
-    tokens.parse().unwrap()
+    tokens.into()
 }
 
 fn impl_serde_value(ast: &DeriveInput) -> ::quote::Tokens {
     let target_name = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
     let serialize_fallback = match ast.attrs.iter()
-        .find(|p| p.name() == "serialize_fallback") {
+        .find(|p| p.path == Path::from("serialize_fallback")) {
         None => String::from(r##"format!("{:?}", self)"##),
-        Some(&Attribute { value: MetaItem::NameValue(_, Lit::Str(ref value, _)), .. }) => value.clone(),
-        Some(attribute) => panic!("Invalid attribute: {:?}", attribute)
+        Some(ref attribute) => {
+            if let Some(Meta::NameValue(MetaNameValue { lit: Lit::Str(ref value), .. })) = attribute.interpret_meta() {
+                value.value()
+            } else {
+                panic!("Invalid attribute: {:?}", attribute)
+            }
+        }
     };
     quote! {
         impl #impl_generics ::slog::Value for #target_name #ty_generics #where_clause {
@@ -181,162 +192,6 @@ fn impl_serde_value(ast: &DeriveInput) -> ::quote::Tokens {
     }
 }
 
-#[proc_macro_derive(AutoError, attributes(error))]
-pub fn auto_error(input: TokenStream) -> TokenStream {
-    let text = input.to_string();
-    let start = Instant::now();
-    let ast = syn::parse_derive_input(&text).unwrap();
-    let tokens = impl_auto_error(&ast);
-    debug_derive(start.elapsed(), "AutoError", &ast.ident, &tokens);
-    tokens.parse().unwrap()
-}
-
-fn impl_auto_error(ast: &DeriveInput) -> quote::Tokens {
-    let error_name = &ast.ident;
-    let defaults = ErrorConfiguration::determine(&ast.attrs)
-        .unwrap_or_else(|reason| panic!("Invalid attributes for {}, {}", error_name, reason));
-    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
-    match ast.body {
-        Body::Enum(ref variants) => {
-            let mut description_cases = Vec::new();
-            let mut cause_cases = Vec::new();
-            let mut display_cases = Vec::new();
-            let mut from_implementations = Vec::new();
-            for variant in &*variants {
-                let name = &variant.ident;
-                let config = ErrorConfiguration::determine(&variant.attrs)
-                    .unwrap_or_else(|reason| {
-                        panic!("Invalid attributes for {}::{}, {}", error_name, name, reason)
-                    });
-                let description = config.description.as_ref().unwrap_or_else(|| {
-                    defaults.description.as_ref().unwrap_or_else(|| {
-                        panic!("Missing description for {}::{}", error_name, name)
-                    })
-                });
-                let destructuring = DestructuringStyle::Ref.destructure(&variant.data);
-                let case = quote!(#error_name::#name #destructuring =>);
-                description_cases.push(quote! { #case #description });
-                let cause_field = find_field(variant.data.fields(), "cause");
-                let cause_type = cause_field.map(|field| &field.ty);
-                cause_cases.push(if cause_field.is_some() && !config.cause_ignored {
-                    let cause_name = cause_field.unwrap().ident.as_ref();
-                    quote!(#case Some(#cause_name))
-                } else {
-                    quote!(#case None)
-                });
-                if (cause_field.is_some() && variant.data.fields().len() == 1) || config.force_from {
-                    if variant.data.fields().len() != 1 {
-                        unimplemented!("Default fields for From")
-                    }
-                    let cause_type = cause_type.unwrap_or_else(|| {
-                        panic!("{}::{} must have a `cause` field to derive a From implementation!", error_name, name)
-                    });
-                    from_implementations.push(quote! {
-                        impl #impl_generics From<#cause_type> for #error_name #ty_generics #where_clause {
-                            #[inline]
-                            fn from(cause: #cause_type) -> Self {
-                                #error_name::#name { cause }
-                            }
-                        }
-                    })
-                }
-                if let Some(display) = config.display_format.as_ref().or_else(|| defaults.display_format.as_ref()) {
-                    let passed_fields = DisplayString::parse(display)
-                        .access_variables();
-                    display_cases.push(quote!(#case write!(f, #display, #passed_fields)))
-                } else {
-                    display_cases.push(quote!(#case f.write_str(#description)))
-                }
-            }
-            quote! {
-                impl #impl_generics AutoError for #error_name #ty_generics #where_clause {}
-                impl #impl_generics ::std::error::Error for #error_name #ty_generics #where_clause {
-                    #[inline]
-                    #[allow(unused)]
-                    fn description(&self) -> &str {
-                        match *self {
-                            #(#description_cases,)*
-                        }
-                    }
-                    #[inline]
-                    #[allow(unused)]
-                    fn cause(&self) -> Option<&::std::error::Error> {
-                        match *self {
-                            #(#cause_cases,)*
-                        }
-                    }
-                }
-                impl #impl_generics ::std::fmt::Display for #error_name #ty_generics #where_clause {
-                    #[inline]
-                    #[allow(unused)]
-                    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-                        match *self {
-                            #(#display_cases,)*
-                        }
-                    }
-                }
-                #(#from_implementations)*
-            }
-        },
-        Body::Struct(VariantData::Tuple(ref fields)) if fields.len() == 1 => {
-            // Implement newtype structs by delegating to the underlying error
-            quote! {
-                impl #impl_generics AutoError for #error_name #ty_generics #where_clause {}
-                impl #impl_generics ::std::error::Error for #error_name #ty_generics #where_clause {
-                    #[inline]
-                    fn description(&self) -> &str {
-                        self.0.description()
-                    }
-                    #[inline]
-                    fn cause(&self) -> Option<&::std::error::Error> {
-                        self.0.cause()
-                    }
-                }
-                impl #impl_generics ::std::fmt::Display for #error_name #ty_generics #where_clause {
-                    #[inline]
-                    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-                        write!(f, "{}", self.0)
-                    }
-                }
-            }
-        }
-        Body::Struct(ref variant) => {
-            let description = defaults.description.unwrap_or_else(|| {
-                panic!("Missing description for {}", error_name)
-            });
-            let display = if let Some(ref display) = defaults.display_format {
-                let passed_fields = DisplayString::parse(display)
-                    .access_fields(quote!(self));
-                quote!(write!(f, #display, #passed_fields))
-            } else {
-                quote!(f.write_str(#description))
-            };
-            let cause = find_field(variant.fields(), "cause")
-                .map(|field| &field.ty);
-            let give_cause = if cause.is_some() { quote! { Some(&self.cause) } } else { quote!(None) };
-            quote! {
-                impl #impl_generics AutoError for #error_name #ty_generics #where_clause {}
-                impl #impl_generics ::std::error::Error for #error_name #ty_generics #where_clause {
-                    #[inline]
-                    fn description(&self) -> &str {
-                        #description
-                    }
-                    #[inline]
-                    fn cause(&self) -> Option<&::std::error::Error> {
-                        #give_cause
-                    }
-                }
-                impl #impl_generics ::std::fmt::Display for #error_name #ty_generics #where_clause {
-                    #[inline]
-                    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-                        #display
-                    }
-                }
-            }
-        }
-    }
-}
-
 struct DisplayString {
     indexed_fields: u32,
     named_fields: HashSet<String>
@@ -349,7 +204,7 @@ impl DisplayString {
     fn access_variables(&self) -> quote::Tokens {
         self.access(
             |index| {
-                let name = Ident::new(format!("value_{}", index));
+                let name = Ident::from(format!("value_{}", index));
                 quote!(#name)
             },
             |name| quote!(#name)
@@ -366,14 +221,14 @@ impl DisplayString {
         where IF: FnMut(u32) -> quote::Tokens, NF: FnMut(&Ident) -> quote::Tokens {
         let mut result = quote::Tokens::new();
         for index in 0..self.indexed_fields {
-            result.append(indexed(index));
-            result.append(",");
+            result.append_all(indexed(index));
+            ",".to_tokens(&mut result);
         }
         for name in &self.named_fields {
-            result.append(name);
-            result.append("=");
-            result.append(named(&Ident::new(name.clone())));
-            result.append(",");
+            name.to_tokens(&mut result);
+            "=".to_tokens(&mut result);
+            result.append_all(named(&Ident::from(name.clone())));
+            ",".to_tokens(&mut result);
         }
         result
     }
@@ -415,27 +270,26 @@ impl DisplayString {
 
 #[proc_macro_derive(SimpleParseError, attributes(parse_error))]
 pub fn simple_parse_error(input: TokenStream) -> TokenStream {
-    let text = input.to_string();
     let start = Instant::now();
-    let ast = syn::parse_derive_input(&text).unwrap();
+    let ast = syn::parse(input).unwrap();
     let tokens = simple_parse_error_impl(&ast);
     debug_derive(start.elapsed(), "SimpleParseError", &ast.ident, &tokens);
-    tokens.parse().unwrap()
+    tokens.into()
 }
 fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
     let error_name = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
-    match ast.body {
-        Body::Enum(ref variants) => {
+    match ast.data {
+        Data::Enum(DataEnum { ref variants, .. }) => {
             let mut cause_cases = Vec::new();
             let mut location_mut_cases = Vec::new();
             let mut location_cases = Vec::new();
             let mut from_implementations = Vec::new();
             for variant in variants {
                 let name = &variant.ident;
-                let cause = find_field(variant.data.fields(), "cause")
+                let cause = find_field(variant.fields.iter(), "cause")
                     .map(|field| &field.ty);
-                let location_type = find_field(variant.data.fields(), "location")
+                let location_type = find_field(variant.fields.iter(), "location")
                     .map(|field| &field.ty)
                     .unwrap_or_else(|| panic!("{}::{} must have a location field!", error_name, name));
                 let optional_location = match BasicType::determine(location_type) {
@@ -449,7 +303,7 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
                     cause_cases.push(quote!(#error_name::#name { .. } => None));
                 }
                 if let Some(cause) = cause {
-                    if variant.data.fields().len() == 2 {
+                    if variant.fields.iter().len() == 2 {
                         from_implementations.push(quote! {
                             impl  #impl_generics ::duckcommons::parse::FromParseError<#cause> for #error_name #ty_generics #where_clause {
                                 #[inline]
@@ -501,10 +355,9 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
                 #(#from_implementations)*
             }
         },
-        Body::Struct(VariantData::Tuple(ref fields)) => {
-            assert_eq!(fields.len(), 1, "Can only derive SimpleParseError for newtype tuple structs!");
-
-            let delegate_type = &fields[0];
+        Data::Struct(DataStruct { fields: ref fields @ Fields::Unnamed(_) , .. }) => {
+            assert_eq!(fields.iter().len(), 1, "Can only derive SimpleParseError for newtype tuple structs!");
+            let delegate_type = fields.iter().nth(0).unwrap();
             quote! {
                 impl #impl_generics ::duckcommons::parse::SimpleParseError for #error_name #ty_generics #where_clause {
                     #[inline]
@@ -522,8 +375,8 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
                 }
             }
         },
-        Body::Struct(ref variant) => {
-            let cause = find_field(variant.fields(), "cause")
+        Data::Struct(DataStruct { fields: ref fields @ Fields::Named(_), .. }) => {
+            let cause = find_field(fields, "cause")
                 .map(|field| &field.ty);
             let give_cause = if cause.is_some() { quote! { Some(&self.cause) } } else { quote!(None) };
             quote! {
@@ -542,7 +395,9 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
                     }
                 }
             }
-        }
+        },
+        Data::Struct(DataStruct { fields: Fields::Unit, .. }) => unimplemented!("Unit structs"),
+        Data::Union(_) => unimplemented!("Unions")
     }
 }
 #[derive(Debug)]
@@ -558,32 +413,33 @@ impl ErrorConfiguration {
         let mut display_format = None;
         let mut cause_ignored = false;
         let mut force_from = false;
+        let error_path = Path::from("error");
         for attr in attrs {
-            if attr.name() == "error" {
-                if let MetaItem::List(_, ref entries) = attr.value {
-                    'attributeHandling: for entry in entries.iter() {
-                        if let NestedMetaItem::MetaItem(MetaItem::List(ref name, ref items)) = *entry {
-                            match (name.as_ref(), items.len()) {
+            if attr.path == error_path {
+                if let Some(Meta::List(MetaList { ref nested, .. })) = attr.interpret_meta() {
+                    'attributeHandling: for entry in nested.iter() {
+                        if let NestedMeta::Meta(Meta::List(MetaList { ref ident, ref nested, .. })) = *entry {
+                            match (ident.as_ref(), nested.len()) {
                                 ("description", 1) => {
-                                    if let NestedMetaItem::Literal(Lit::Str(ref value, _)) = items[0] {
+                                    if let NestedMeta::Literal(Lit::Str(ref value)) = nested[0] {
                                         if description.is_some() {
                                             return Err("Multiple error descriptions given".to_owned())
                                         }
-                                        description = Some(value.clone());
+                                        description = Some(value.value());
                                         continue 'attributeHandling;
                                     }
                                 },
                                 ("display", 1) => {
-                                    if let NestedMetaItem::Literal(Lit::Str(ref value, _)) = items[0] {
+                                    if let NestedMeta::Literal(Lit::Str(ref value)) = nested[0] {
                                         if display_format.is_some() {
                                             return Err("Multiple error display formats given".to_owned())
                                         }
-                                        display_format = Some(value.clone());
+                                        display_format = Some(value.value());
                                         continue 'attributeHandling;
                                     }
                                 },
                                 ("from", 1) => {
-                                    if let NestedMetaItem::MetaItem(MetaItem::Word(ref option)) = items[0] {
+                                    if let NestedMeta::Meta(Meta::Word(ref option)) = nested[0] {
                                         match option.as_ref() {
                                             "forced" => {
                                                 if force_from {
@@ -599,7 +455,7 @@ impl ErrorConfiguration {
                                     }
                                 }
                                 ("cause", 1) => {
-                                    if let NestedMetaItem::MetaItem(MetaItem::Word(ref option)) = items[0] {
+                                    if let NestedMeta::Meta(Meta::Word(ref option)) = nested[0] {
                                         match option.as_ref() {
                                             "ignored" => {
                                                 if cause_ignored {
@@ -662,16 +518,18 @@ impl BasicType {
             BasicType::Option(ref inner) => format!("Option<{}>", inner.name()),
         }
     }
-    fn determine(target: &Ty) -> Option<BasicType> {
-        if let Ty::Path(None, ref path) = *target {
+    fn determine(target: &Type) -> Option<BasicType> {
+        if let Type::Path(TypePath { qself: None, ref path }) = *target {
             if path.segments.len() == 1 {
                 let segment = &path.segments[0];
                 let name = segment.ident.as_ref();
                 match name {
                     "Option" => {
-                        if let PathParameters::AngleBracketed(ref params) = segment.parameters {
-                            if let Some(known) = BasicType::determine(&params.types[0]) {
-                                return Some(BasicType::Option(box known))
+                        if let PathArguments::AngleBracketed(AngleBracketedGenericArguments { ref args, .. }) = segment.arguments {
+                            if let GenericArgument::Type(ref param_type) = args[0] {
+                                if let Some(known) = BasicType::determine(param_type) {
+                                    return Some(BasicType::Option(box known))
+                                }
                             }
                         }
                     },
@@ -694,7 +552,7 @@ impl BasicType {
     }
 }
 
-fn find_field<'a>(targets: &'a [Field], name: &str) -> Option<&'a Field> {
+fn find_field<'a, I>(targets: I, name: &str) -> Option<&'a Field> where I: IntoIterator<Item=&'a Field> {
     for field in targets {
         if let Some(ref ident) = field.ident {
             if ident == name {
@@ -717,13 +575,13 @@ fn debug_derive(duration: Duration, name: &str, ident: &Ident, tokens: &quote::T
             if target == name {
                 println!("derive({}) for {}:", name, ident);
                 let indent = " ".repeat(2);
-                let code = match rustfmt(tokens.as_str()) {
+                let code = match rustfmt(&tokens.to_string()) {
                     Ok(Some(formatted)) => formatted,
                     Ok(None) => {
                         println!("{}// NOTE: Failed to rustfmt", indent);
-                        tokens.as_str().to_owned()
+                        tokens.to_string()
                     },
-                    Err(e) => panic!("Failed to rustfmt: {}", tokens.as_str())
+                    Err(e) => panic!("Failed to rustfmt: {}", tokens.to_string())
                 };
                 for line in code.lines() {
                     println!("{}{}", indent, line);

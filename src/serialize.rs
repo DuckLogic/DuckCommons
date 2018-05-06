@@ -1,5 +1,4 @@
 use std::io::{Error as IoError};
-use ::{AutoError};
 
 /// Serialize the specified value into lz4 compressed bincode
 #[inline]
@@ -21,15 +20,30 @@ pub fn deserialize_compressed_bincode<T, R>(source: R) -> Result<T, Serializatio
     Ok(::bincode::deserialize_from(&mut decoder, ::bincode::Infinite)?)
 }
 
-#[derive(AutoError, Debug)]
+#[derive(Fail, Debug)]
 pub enum SerializationError {
-    #[error(description("IOError"), display("{cause}"))]
+    #[fail(display = "{}", cause)]
     IoError {
+        #[cause]
         cause: IoError
     },
     #[cfg(feature="bincode")]
-    #[error(description("Invalid bincode"), display("Invalid bincode: {cause}"))]
+    #[fail(display = "Invalid bincode: {}", cause)]
     Bincode {
+        #[cause]
         cause: ::bincode::Error
+    }
+}
+impl From<IoError> for SerializationError {
+    #[inline]
+    fn from(cause: IoError) -> SerializationError {
+        SerializationError::IoError { cause }
+    }
+}
+#[cfg(feature="bincode")]
+impl From<::bincode::Error> for SerializationError {
+    #[inline]
+    fn from(cause: ::bincode::Error) -> SerializationError {
+        SerializationError::Bincode { cause }
     }
 }

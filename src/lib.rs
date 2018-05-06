@@ -72,7 +72,6 @@ mod duckcommons {
 
 use std::hint;
 use std::fmt::{Debug};
-use std::error::Error;
 
 /// Attempts to debug the specified value,
 /// by casting it to a `&Debug` trait object if possible.
@@ -166,53 +165,6 @@ impl<'a> IntoOwned<String> for &'a str {
         self.to_owned()
     }
 }
-
-
-/// Marker trait to indicate that the type wants its `Error` implementation automatically derived.
-///
-/// Configuration is done by adding `error` attributes to each variant,
-/// which may be either `description` which gives the error's description,
-/// and optionally `display` which is a format string that indicates how the type should be displayed.
-///
-/// A field named `cause` is special and will automatically implement the `Error::cause` method,
-/// and if it's the only variant in the struct it will cause a `From` implementation to be automatically derived.
-/// ## Examples
-/// ```
-/// # #![feature(attr_literals)]
-/// # #[macro_use]
-/// # extern crate duckcommons_derive;
-/// # extern crate duckcommons;
-/// # use duckcommons::AutoError;
-/// # use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-/// #[derive(AutoError, Debug)]
-/// pub enum ExampleError {
-///     #[error(description("Invalid input"), display("Invalid input: {input}"))]
-///     InvalidInput { input: String },
-///     #[error(description("IoError"), display("IoError: {cause}"))]
-///     IOError { cause: IoError },
-///     #[error(description("Monty python rocks"))]
-///     MontyPythonOverload
-/// }
-/// # fn main() {
-///     assert_eq!(
-///         format!("{}", ExampleError::from(IoError::from(IoErrorKind::NotFound))),
-///         "IoError: entity not found"
-///     );
-///     assert_eq!(
-///         format!("{}", ExampleError::InvalidInput { input: "your mom".to_owned() }),
-///         "Invalid input: your mom"
-///     );
-///     /*
-///      * Since we didn't provide a seperate `display`, the error defaults to using the description,
-///      * as monty python needs no more display beyond the existing description.
-///      */
-///     assert_eq!(
-///         format!("{}", ExampleError::MontyPythonOverload),
-///         "Monty python rocks"
-///     );
-/// # }
-/// ```
-pub trait AutoError: Error {}
 
 #[cold] #[inline(never)]
 pub fn display_panic_message(dynamic: Box<::std::any::Any + Send + 'static>) -> String {
