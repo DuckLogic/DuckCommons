@@ -1,8 +1,8 @@
-use std::fmt::{Display};
+use std::fmt::{self, Display, Debug, Formatter};
 use std::cell::Cell;
 use num_traits::{PrimInt, Unsigned};
 
-pub trait IdCounted: PrimInt + Unsigned  + Display {
+pub trait IdCounted: PrimInt + Unsigned + Debug + Display {
     #[inline]
     fn into_u64(self) -> u64 {
         self.to_u64().unwrap()
@@ -53,5 +53,12 @@ impl<T: IdCounted> Default for IdCounter<T> {
     #[inline]
     fn default() -> Self {
         IdCounter::new()
+    }
+}
+impl<T: IdCounted> Debug for IdCounter<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.debug_tuple("IdCounter")
+            .field(&self.current())
+            .finish()
     }
 }

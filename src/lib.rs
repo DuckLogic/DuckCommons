@@ -72,7 +72,7 @@ mod duckcommons {
 }
 
 use std::hint;
-use std::fmt::{Debug};
+use std::fmt::{Debug, Display};
 
 /// Attempts to debug the specified value,
 /// by casting it to a `&Debug` trait object if possible.
@@ -115,8 +115,28 @@ pub use logging::SerializeValue;
 pub use math::counter::{IdCounter, IdCounted};
 
 #[inline]
+pub fn cast_display<T>(value: &T) -> Option<&Display> {
+    <T as CastDisplay>::maybe_display(value)
+}
+
+#[inline]
 pub fn cast_debug<T>(value: &T) -> Option<&Debug> {
     <T as CastDebug>::maybe_debug(value)
+}
+trait CastDisplay {
+    fn maybe_display(&self) -> Option<&Display>;
+}
+impl<T> CastDisplay for T {
+    #[inline]
+    default fn maybe_display(&self) -> Option<&Display> {
+        None
+    }
+}
+impl<T: Display> CastDisplay for T {
+    #[inline]
+    fn maybe_display(&self) -> Option<&Display> {
+        Some(self)
+    }
 }
 trait CastDebug {
     fn maybe_debug(&self) -> Option<&Debug>;
