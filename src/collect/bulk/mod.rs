@@ -1,5 +1,6 @@
 //! Performs bulk insertions
-use std::iter::FromIterator;
+use std::ops::Range;
+use std::iter::{ExactSizeIterator, FromIterator, TrustedLen};
 use std::fmt::{self, Debug, Formatter};
 
 use super::insertion_sort_by_key;
@@ -58,11 +59,33 @@ impl<T> InsertionSet<T> {
     pub fn desired_insertions(&self) -> usize {
         self.insertions.len()
     }
+    pub fn list_updated_locations(&mut self, target: &Vec<T>) -> Vec<(OriginalLocation, usize)> {
+        let mut result = Vec::with_capacity(target.len() + self.desired_insertions());
+        self.compute_updated_locations(
+            target,
+            |original, updated| result.push((original, updated))
+        );
+        result.sort_by_key(|&(_, updated)| updated);
+        result
+    }
+    /// Computes all the updated locations
+    pub fn compute_updated_locations<F: FnMut(OriginalLocation, usize)>(&mut self, target: &Vec<T>, func: F) {
+        self.sort();
+        compute_updated_locations(
+            target,
+            self.insertions.iter().rev().map(|insertion| insertion.index),
+            func
+        )
+    }
     /// Applies all the insertions to the specified target vector.
     ///
     /// The average runtime of this function is `O(n + m)`,
     /// where `n` is the number of existing elements and `m` is the number of insertions.
     pub fn apply(&mut self, target: &mut Vec<T>) {
+        self.sort();
+        apply_bulk_insertions(target, PoppingIter(&mut self.insertions));
+    }
+    fn sort(&mut self) {
         /*
          * Why would we possibly want to use insertion sort here?
          * First of all,
@@ -82,40 +105,6 @@ impl<T> InsertionSet<T> {
          * except that bubble sort is a terrible algorithm and insertion sort is much better.
          */
         insertion_sort_by_key(&mut *self.insertions, |insertion| insertion.index);
-        let mut shifter = BulkShifter::new(target, self.insertions.len());
-        /*
-         * We perform insertions in reverse order to reduce moving memory,
-         * and ensure that the function is panic safe.
-         *
-         * For example, given the vector
-         * and the InsertionSet `[(0, 0), (1, 2), (1, 3) (4, 9)]`:
-         *
-         * Since the first (working backwards) insertion is `(4, 9)`,
-         * we need to to shift all elements after our first insertion
-         * to the left 4 places:
-         * `[1, 4, 5, 7, undef, undef, undef, undef, 11]`.
-         * The element `11` will never need to be moved again,
-         * since we've already made room for all future insertions.
-         *
-         * Next, we perform our first insertion (4, 9) at the last `undef` element:
-         * `[1, 4, 5, 7, undef, undef, undef, 9, 11]`.
-         * We only have 3 insertions left to perform,
-         * so all future shifts will only need to move over two.
-         * Then, we handle the group of insertions `[(1, 2), [(1, 3)]`,
-         * and shift all elements past index 1 to the left 3 spaces:
-         * [1, undef, undef, undef, 4, 5, 7, 9, 11].
-         * Then we perform our desired insertions at index 1:
-         * [1, undef, 2, 3, 4, 9, 11].
-         * Finally, we perform the same process for the final insertion (0, 0),
-         * resulting in the desired result: [0, 1, 2, 3, 4, 9, 11].
-         */
-        while !shifter.is_finished() {
-            let Insertion { index, element } = self.insertions.pop()
-                .expect("Expected more insertions!");
-            shifter.shift_original(index);
-            shifter.push_shifted(element);
-        }
-        shifter.finish();
     }
 }
 impl<T> FromIterator<Insertion<T>> for InsertionSet<T> {
@@ -137,6 +126,117 @@ impl<T> Default for InsertionSet<T> {
     }
 }
 
+struct PoppingIter<'a, T: 'a>(&'a mut Vec<T>);
+impl<'a, T> Iterator for PoppingIter<'a, T> {
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        self.0.pop()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.0.len(), Some(self.0.len()))
+    }
+}
+impl<'a, T> ExactSizeIterator for PoppingIter<'a, T> {}
+unsafe impl<'a, T> TrustedLen for PoppingIter<'a, T> {}
+
+/// Applies all the specified insertions into the target vector.
+///
+/// The insertion iterator must be sorted in reverse order and give the proper size for its `ExactSizeIterator`.
+/// Violating these constraints will never cause undefined behavior,
+/// since internally we use the completely safe `BulkShifter` abstraction.
+pub fn apply_bulk_insertions<T, I>(target: &mut Vec<T>, mut insertions: I)
+    where I: Iterator<Item=Insertion<T>>,
+          I: ExactSizeIterator,
+{
+    let mut shifter = BulkShifter::new(target, insertions.len());
+    /*
+     * We perform insertions in reverse order to reduce moving memory,
+     * and ensure that the function is panic safe.
+     *
+     * For example, given the vector
+     * and the InsertionSet `[(0, 0), (1, 2), (1, 3) (4, 9)]`:
+     *
+     * Since the first (working backwards) insertion is `(4, 9)`,
+     * we need to to shift all elements after our first insertion
+     * to the left 4 places:
+     * `[1, 4, 5, 7, undef, undef, undef, undef, 11]`.
+     * The element `11` will never need to be moved again,
+     * since we've already made room for all future insertions.
+     *
+     * Next, we perform our first insertion (4, 9) at the last `undef` element:
+     * `[1, 4, 5, 7, undef, undef, undef, 9, 11]`.
+     * We only have 3 insertions left to perform,
+     * so all future shifts will only need to move over two.
+     * Then, we handle the group of insertions `[(1, 2), [(1, 3)]`,
+     * and shift all elements past index 1 to the left 3 spaces:
+     * [1, undef, undef, undef, 4, 5, 7, 9, 11].
+     * Then we perform our desired insertions at index 1:
+     * [1, undef, 2, 3, 4, 9, 11].
+     * Finally, we perform the same process for the final insertion (0, 0),
+     * resulting in the desired result: [0, 1, 2, 3, 4, 9, 11].
+     */
+    while !shifter.is_finished() {
+        let Insertion { index, element } = insertions.next()
+            .expect("Expected more insertions!");
+        shifter.shift_original(index);
+        shifter.push_shifted(element);
+    }
+    shifter.finish();
+    assert!(insertions.is_empty(), "Unexpected insertions");
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum OriginalLocation {
+    /// The insertion with the specified index
+    Insertion(usize),
+    /// The original location at the specified original index
+    Original(usize)
+}
+
+pub fn compute_updated_locations<T, I, F>(target: &Vec<T>, mut insertions: I, mut updated: F) where
+    I: Iterator<Item=usize>,
+    I: ExactSizeIterator,
+    F: FnMut(OriginalLocation, usize) {
+    // This mirrors `apply_bulk_insertions` without actually shifting memory
+    let mut original_len = target.len();
+    let shifted_end = original_len + insertions.len();
+    let mut shifted_start = shifted_end;
+    while original_len != shifted_start {
+        let insertion_index = insertions.next()
+            .expect("Expected more insertions!");
+        // Since we're in reverse order we should be counting down
+        let insertion_id = insertions.len();
+        let moved_memory = original_len - insertion_index;
+        if moved_memory > 0 {
+            assert!(shifted_start >= moved_memory && insertion_index <= shifted_start - moved_memory);
+            update_range(
+                insertion_index..original_len,
+                shifted_start - moved_memory,
+                &mut updated
+            );
+            shifted_start -= moved_memory;
+            original_len = insertion_index;
+        }
+        assert!(shifted_start > original_len);
+        shifted_start -= 1;
+        updated(OriginalLocation::Insertion(insertion_id), shifted_start);
+    }
+    assert!(insertions.is_empty(), "Unexpected insertions");
+}
+#[inline]
+fn update_range<F: FnMut(OriginalLocation, usize)>(original: Range<usize>, updated_start: usize, func: &mut F) {
+    let mut updated = updated_start;
+    for original_index in original {
+        func(OriginalLocation::Original(original_index), updated);
+        updated += 1;
+    }
+}
+
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -153,6 +253,31 @@ mod test {
         assert_eq!(
             insertions.applied(vector),
             vec![0, 1, 2, 3, 4, 5, 7, 9, 11]
+        );
+    }
+    #[test]
+    fn updated_locations() {
+        /*
+        * For example, given the vector `[1, 4, 5, 7, 11]`
+        * and the InsertionSet `[(0, 0), (1, 2), (1, 3) (4, 9)]`:
+        */
+        let vector = vec![1, 4, 5, 7, 11];
+        let mut insertions = [(0, 0), (1, 2), (1, 3), (4, 9)].iter()
+            .cloned()
+            .collect::<InsertionSet<u32>>();
+        assert_eq!(
+            insertions.list_updated_locations(&vector),
+            vec![
+                (OriginalLocation::Insertion(0), 0),
+                (OriginalLocation::Original(0), 1),
+                (OriginalLocation::Insertion(1), 2),
+                (OriginalLocation::Insertion(2), 3),
+                (OriginalLocation::Original(1), 4),
+                (OriginalLocation::Original(2), 5),
+                (OriginalLocation::Original(3), 6),
+                (OriginalLocation::Insertion(3), 7),
+                (OriginalLocation::Original(4), 8),
+            ]
         );
     }
 }

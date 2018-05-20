@@ -65,8 +65,8 @@ impl<'a, T: 'a> BulkShifter<'a, T> {
     pub fn is_finished(&self) -> bool {
         self.shifted_start == self.target.len()
     }
-    /// Shift all the values from the values after the specified `start`,
-    /// from the original range of values over to the shifted range of values.
+    /// Shifts all the values after the specified original `start`
+    /// from the original values over to the shifted values.
     /// 
     /// Panics if there's insufficient space to continue,
     /// since all these operations are done in place.
@@ -108,7 +108,7 @@ impl<'a, T: 'a> BulkShifter<'a, T> {
             );
         }
     }
-    /// The length of the first range of valid elements.
+    /// The length of the valid original elements.
     #[inline]
     pub fn len(&self) -> usize {
         self.target.len()

@@ -37,7 +37,7 @@ idmap-derive = "^0.1.1"
 # Arena allocation
 typed-arena = "^1.3.0"
 # Fast integer formatting
-itoa = "^0.3.2"
+itoa = "^0.4.1"
 # Impossible type
 void = "^1.0.2"
 # Fast memory search
