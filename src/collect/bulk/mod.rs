@@ -197,7 +197,7 @@ pub enum OriginalLocation {
     Original(usize)
 }
 
-pub fn compute_updated_locations<T, I, F>(target: &Vec<T>, mut insertions: I, mut updated: F) where
+pub fn compute_updated_locations<T, I, F>(target: &[T], mut insertions: I, mut updated: F) where
     I: Iterator<Item=usize>,
     I: ExactSizeIterator,
     F: FnMut(OriginalLocation, usize) {
