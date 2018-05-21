@@ -225,6 +225,9 @@ pub fn compute_updated_locations<T, I, F>(target: &Vec<T>, mut insertions: I, mu
         shifted_start -= 1;
         updated(OriginalLocation::Insertion(insertion_id), shifted_start);
     }
+    for original_index in 0..original_len {
+        updated(OriginalLocation::Original(original_index), original_index);
+    }
     assert!(insertions.is_empty(), "Unexpected insertions");
 }
 #[inline]
@@ -277,6 +280,20 @@ mod test {
                 (OriginalLocation::Original(3), 6),
                 (OriginalLocation::Insertion(3), 7),
                 (OriginalLocation::Original(4), 8),
+            ]
+        );
+    }
+    #[test]
+    fn empty_updated_locations() {
+        let vector = vec![1, 4, 5, 7, 11];
+        assert_eq!(
+            InsertionSet::new().list_updated_locations(&vector),
+            vec![
+                (OriginalLocation::Original(0), 0),
+                (OriginalLocation::Original(1), 1),
+                (OriginalLocation::Original(2), 2),
+                (OriginalLocation::Original(3), 3),
+                (OriginalLocation::Original(4), 4),
             ]
         );
     }
