@@ -111,7 +111,7 @@ pub use self::collect::{
 };
 #[deprecated(note = "Please import directly from `two_sided_vec`")]
 pub use two_sided_vec::TwoSidedVec;
-pub use logging::SerializeValue;
+pub use logging::{SerializeValue, IterValue};
 pub use math::counter::{IdCounter, IdCounted};
 
 #[inline]
