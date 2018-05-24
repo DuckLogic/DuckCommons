@@ -69,12 +69,21 @@ impl<T> InsertionSet<T> {
         result
     }
     /// Computes all the updated locations
-    pub fn compute_updated_locations<F: FnMut(OriginalLocation, usize)>(&mut self, target: &Vec<T>, func: F) {
+    pub fn compute_updated_locations<F>(&mut self, target: &Vec<T>, mut func: F)
+        where F: FnMut(OriginalLocation, usize) {
         self.sort();
         compute_updated_locations(
             target,
             self.insertions.iter().rev().map(|insertion| insertion.index),
-            func
+            |original, updated| {
+                func(match original {
+                    OriginalLocation::Original(_) => original,
+                    OriginalLocation::Insertion(reversed_index) => {
+                        // Convert the reversed insertion index back to the original one
+                        OriginalLocation::Insertion(self.insertions.len() - (reversed_index + 1))
+                    }
+                }, updated)
+            }
         )
     }
     /// Applies all the insertions to the specified target vector.
@@ -205,11 +214,10 @@ pub fn compute_updated_locations<T, I, F>(target: &[T], mut insertions: I, mut u
     let mut original_len = target.len();
     let shifted_end = original_len + insertions.len();
     let mut shifted_start = shifted_end;
+    let mut insertion_id = 0;
     while original_len != shifted_start {
         let insertion_index = insertions.next()
             .expect("Expected more insertions!");
-        // Since we're in reverse order we should be counting down
-        let insertion_id = insertions.len();
         let moved_memory = original_len - insertion_index;
         if moved_memory > 0 {
             assert!(shifted_start >= moved_memory && insertion_index <= shifted_start - moved_memory);
@@ -224,6 +232,7 @@ pub fn compute_updated_locations<T, I, F>(target: &[T], mut insertions: I, mut u
         assert!(shifted_start > original_len);
         shifted_start -= 1;
         updated(OriginalLocation::Insertion(insertion_id), shifted_start);
+        insertion_id += 1;
     }
     for original_index in 0..original_len {
         updated(OriginalLocation::Original(original_index), original_index);
