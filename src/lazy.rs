@@ -242,6 +242,14 @@ impl<T> Lazy<T> {
             None => intrinsics::unreachable()
         }
     }
+    #[inline]
+    pub fn as_ref(&self) -> Lazy<&T> {
+        Lazy::from(self.get())
+    }
+    #[inline]
+    pub fn map<F: FnOnce(T) -> U, U>(self, func: F) -> Lazy<U> {
+        Lazy::from(self.into_inner().map(func))
+    }
 }
 impl<'de, T> Deserialize<'de> for Lazy<T> where T: Deserialize<'de> {
     #[inline]
