@@ -1,5 +1,7 @@
+use std::mem;
 use std::cmp::Ordering;
 use std::hash::BuildHasherDefault;
+use std::alloc::{Layout, Global, GlobalAlloc};
 
 use itertools::Itertools;
 use ordermap::{OrderSet, OrderMap};
@@ -108,4 +110,70 @@ pub fn find_duplicates_by<T, F>(target: &[T], mut same_bucket: F) -> Option<((us
         }
     }
     None
+}
+
+/// Unwrap every `Option` in the specified vector,
+/// reusing the existing memory if possible.
+pub fn bulk_unwrap<T>(target: Vec<Option<T>>) -> Vec<T> {
+    #[cold] #[inline(never)]
+    fn unwrap_failed(index: usize) -> ! {
+        panic!("Failed to bulk unwrap `None` at index {}", index)
+    }
+    #[inline]
+    fn bulk_unwrap_element<T>(index: usize, element: Option<T>) -> T {
+        match element {
+            Some(value) => value,
+            None => unwrap_failed(index)
+        }
+    }
+    if mem::align_of::<Option<T>>() == mem::align_of::<T>() {
+        /*
+         * Since the alignments ask,
+         * we can just ask the allocator to reallocate.
+         * Since this is *shrinking* memory it should
+         * never need to reallocate unless
+         * something really weird is going on.
+         */
+        assert!(mem::size_of::<T>() <= mem::size_of::<Option<T>>());
+        let original_start_ptr = target.as_ptr();
+        let updated_start_ptr = target.as_ptr() as *mut T;
+        let len = target.len();
+        let capacity = target.capacity();
+        unsafe {
+            let original_end_ptr = original_start_ptr.add(len);
+            let mut original_ptr = original_start_ptr;
+            let mut updated_ptr = updated_start_ptr;
+            mem::forget(target);
+            while original_ptr < original_end_ptr {
+                let opt = original_ptr.read();
+                match opt {
+                    Some(value) => {
+                        updated_ptr.write(value);
+                    }
+                    None => {
+                        unwrap_failed(
+                            original_ptr.offset_from(original_start_ptr) as usize
+                        )
+                    }
+                }
+                original_ptr = original_ptr.add(1);
+                updated_ptr = updated_ptr.add(1);
+            }
+            // Realloc the memory with the new size of `T`
+            let realloc_ptr = Global.realloc(
+                original_ptr as *mut _,
+                Layout::from_size_align(
+                    capacity * mem::size_of::<Option<T>>(),
+                    mem::align_of::<Option<T>>()
+                ).unwrap(),
+                capacity * mem::size_of::<T>()
+            ) as *mut T;
+            Vec::from_raw_parts(realloc_ptr, len, capacity)
+        }
+    } else {
+        // Do the niave version
+        target.into_iter().enumerate()
+            .map(|(index, opt)| bulk_unwrap_element(index, opt))
+            .collect()
+    }
 }

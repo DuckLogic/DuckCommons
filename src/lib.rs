@@ -25,6 +25,7 @@
     align_offset, // Needed to compute alignment for use with SIMD
     proc_macro, proc_macro_non_items, // Needed for strip_expr_nesting
     exact_size_is_empty, // Why isn't this already stable?
+    ptr_offset_from, // Helps make pointer logic cleaner
 )]
 #![cfg_attr(feature="cargo-clippy", allow(
     type_complexity, // Sometimes I just like complex types ^_^
