@@ -1,7 +1,8 @@
 use std::mem;
 use std::cmp::Ordering;
 use std::hash::BuildHasherDefault;
-use std::alloc::{Layout, Global, GlobalAlloc};
+use std::alloc::{Layout, Global, Alloc, oom};
+use std::ptr::NonNull;
 
 use itertools::Itertools;
 use ordermap::{OrderSet, OrderMap};
@@ -127,8 +128,12 @@ pub fn bulk_unwrap<T>(target: Vec<Option<T>>) -> Vec<T> {
         }
     }
     if mem::align_of::<Option<T>>() == mem::align_of::<T>() {
+        if target.capacity() == 0 {
+            debug_assert_eq!(target.len(), 0);
+            return Vec::new();
+        }
         /*
-         * Since the alignments ask,
+         * Since the alignments are the same,
          * we can just ask the allocator to reallocate.
          * Since this is *shrinking* memory it should
          * never need to reallocate unless
@@ -160,20 +165,45 @@ pub fn bulk_unwrap<T>(target: Vec<Option<T>>) -> Vec<T> {
                 updated_ptr = updated_ptr.add(1);
             }
             // Realloc the memory with the new size of `T`
+            debug_assert!(capacity > 0);
             let realloc_ptr = Global.realloc(
-                original_ptr as *mut _,
+                NonNull::new_unchecked(original_start_ptr as *mut _),
                 Layout::from_size_align(
                     capacity * mem::size_of::<Option<T>>(),
                     mem::align_of::<Option<T>>()
                 ).unwrap(),
                 capacity * mem::size_of::<T>()
-            ) as *mut T;
-            Vec::from_raw_parts(realloc_ptr, len, capacity)
+            ).unwrap_or_else(|_| oom());
+            Vec::from_raw_parts(realloc_ptr.as_ptr() as *mut T, len, capacity)
         }
     } else {
         // Do the niave version
         target.into_iter().enumerate()
             .map(|(index, opt)| bulk_unwrap_element(index, opt))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn bulk_unwrap() {
+        use super::bulk_unwrap;
+        assert_eq!(bulk_unwrap::<u32>(vec![]), Vec::<u32>::new());
+        assert_eq!(bulk_unwrap::<u32>(vec![Some(1), Some(2), Some(3)]), vec![1, 2, 3]);
+        assert_eq!(bulk_unwrap::<u32>(vec![Some(1)]), vec![1]);
+    }
+    #[test]
+    #[should_panic(expected = "Failed to bulk unwrap `None` at index 1")]
+    fn bulk_unwrap_fail() {
+        use super::bulk_unwrap;
+        bulk_unwrap::<u32>(vec![Some(2), None]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to bulk unwrap `None` at index 0")]
+    fn bulk_unwrap_fail_single() {
+        use super::bulk_unwrap;
+        bulk_unwrap::<u32>(vec![None, None]);
     }
 }
