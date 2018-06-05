@@ -90,6 +90,16 @@ pub fn insertion_sort_by_key<T, B, F>(target: &mut [T], mut func: F) where B: Or
     insertion_sort_by(target, |first, second| func(first).cmp(&func(second)))
 }
 
+#[inline]
+pub fn is_unique<T: Eq + ::std::hash::Hash>(target: &[T]) -> bool {
+    is_unique_by_key(target, |value| value)
+}
+pub fn is_unique_by_key<'a, T, U, F>(target: &'a [T], mut func: F) -> bool
+    where U: Eq + ::std::hash::Hash, F: FnMut(&'a T) -> U {
+    let mut set = SeaHashOrderSet::with_capacity_and_hasher(
+        target.len(), Default::default());
+    target.iter().all(|value| set.insert(func(value)))
+}
 
 #[inline]
 pub fn find_duplicates<T: PartialEq, F>(target: &[T]) -> Option<((usize, &T), (usize, &T))> {
