@@ -179,7 +179,9 @@ pub struct TokenStream<'a, T: Token + 'a> {
 impl<'a, T: Token + 'a> TokenStream<'a, T> {
     #[inline]
     pub fn new(tokens: &'a [(Location, T)]) -> Self {
-        assert!(::collect::is_sorted_by_key(tokens, |&(index, _)| index));
+        if tokens.iter().all(|(location, _)| location.is_simple()) {
+            assert!(::collect::is_sorted_by_key(tokens, |&(index, _)| index.unwrap_simple()));
+        }
         TokenStream { tokens, token_index: 0 }
     }
     /// Advance the specified number of tokens,
@@ -200,7 +202,7 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
     }
     #[inline]
     pub fn advance(&mut self, amount: usize) {
-        assert!(self.token_index + amount < self.tokens.len(), "Unable to advance {} tokens", amount);
+        assert!(self.token_index + amount <= self.tokens.len(), "Unable to advance {} tokens", amount);
         self.token_index += amount;
     }
     #[inline]
@@ -526,7 +528,10 @@ pub trait FromParseError<T>: SimpleParseError {
 impl<T: SimpleParseError> FromParseError<T> for T {
     #[inline]
     fn from_cause(location: Location, mut cause: T) -> Self {
-        *cause.location_mut() += location;
+        if let (&mut Location::Simple(ref mut cause_location),
+            Location::Simple(location)) = (cause.location_mut(), location) {
+            *cause_location += location;
+        }
         cause
     }
 }
@@ -853,12 +858,12 @@ impl<'a> LocationCache<'a> {
         let line_starts = self.line_starts();
         match line_starts.len() {
             0 => unreachable!(),
-            1 => Location {
+            1 => Location::Simple(SimpleLocation {
                 multiline: false,
                 line: 0,
                 index,
                 char_offset: index
-            },
+            }),
             _ => {
                 let (line, line_start) = match line_starts.binary_search(&index) {
                     Ok(line) => (line, line_starts[line]),
@@ -868,18 +873,18 @@ impl<'a> LocationCache<'a> {
                     }
                 };
                 assert!(line_start <= index);
-                Location {
+                Location::Simple(SimpleLocation {
                     multiline: true,
                     line,
                     index,
                     char_offset: index - line_start
-                }
+                })
             }
         }
     }
     pub fn offset_location(&self, start: Location, offset: isize) -> Location {
-        assert!(start.index <= isize::max_value() as usize, "Location overflow: {:?}", start);
-        let result = offset + (start.index as isize);
+        assert!(start.unwrap_simple().index <= isize::max_value() as usize, "Location overflow: {:?}", start);
+        let result = offset + (start.unwrap_simple().index as isize);
         assert!(result >= 0, "Unable to offset {:?} by {}", start, offset);
         self.determine_location(result as usize)
     }
@@ -897,7 +902,7 @@ impl<'a> LocationCache<'a> {
 /// The full location of a byte in a string, including it's line number,
 /// character offset and whether or not the original text spanned multiple lines.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Location {
+pub struct SimpleLocation {
     /// Whether or not the original text spanned multiple lines
     pub multiline: bool,
     /// The _line index_ of the original text, starting at zero not one
@@ -907,12 +912,12 @@ pub struct Location {
     /// The byte index in the original text
     pub index: usize,
 }
-impl Location {
+impl SimpleLocation {
     /// Creates a location for the a single-lined piece line of text,
     /// with the specified byte and character index.
     #[inline]
-    pub fn simple(index: usize) -> Location {
-        Location {
+    pub fn simple(index: usize) -> SimpleLocation {
+        SimpleLocation {
             multiline: false,
             line: 0,
             index,
@@ -924,8 +929,8 @@ impl Location {
     /// The text is assumed to be multiline,
     /// although that's not nessicarrily true.
     #[inline]
-    pub fn zero() -> Location {
-        Location {
+    pub fn zero() -> SimpleLocation {
+        SimpleLocation {
             multiline: true,
             line: 0,
             char_offset: 0,
@@ -933,19 +938,19 @@ impl Location {
         }
     }
 }
-impl PartialOrd for Location {
+impl PartialOrd for SimpleLocation {
     #[inline]
-    fn partial_cmp(&self, other: &Location) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &SimpleLocation) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
-impl Ord for Location {
+impl Ord for SimpleLocation {
     #[inline]
-    fn cmp(&self, other: &Location) -> Ordering {
+    fn cmp(&self, other: &SimpleLocation) -> Ordering {
         self.index.cmp(&other.index)
     }
 }
-impl Display for Location {
+impl Display for SimpleLocation {
     #[inline]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if !self.multiline {
@@ -957,12 +962,12 @@ impl Display for Location {
         }
     }
 }
-impl Add for Location {
-    type Output = Location;
+impl Add for SimpleLocation {
+    type Output = SimpleLocation;
 
     #[cfg_attr(feature = "cargo-clippy", allow(suspicious_arithmetic_impl))]
-    fn add(self, rhs: Location) -> Self::Output {
-        Location {
+    fn add(self, rhs: SimpleLocation) -> Self::Output {
+        SimpleLocation {
             multiline: self.multiline | rhs.multiline,
             line: self.line + rhs.line,
             char_offset: self.char_offset + rhs.char_offset,
@@ -970,11 +975,60 @@ impl Add for Location {
         }
     }
 }
-impl AddAssign for Location {
+impl AddAssign for SimpleLocation {
     #[inline]
-    fn add_assign(&mut self, rhs: Location) {
+    fn add_assign(&mut self, rhs: SimpleLocation) {
         let result = *self + rhs;
         *self = result
+    }
+}
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Location {
+    Simple(SimpleLocation),
+    User(u32)
+}
+impl Location {
+    #[inline]
+    pub fn is_simple(&self) -> bool {
+        self.simple().is_some()
+    }
+    /// The starting location of all text, with both `byte`, `line`, and `char_offset` set to zero.
+    ///
+    /// The text is assumed to be multiline,
+    /// although that's not necessarily true.
+    #[inline]
+    pub fn zero() -> Location {
+        Location::Simple(SimpleLocation::zero())
+    }
+    #[inline]
+    pub fn simple(&self) -> Option<SimpleLocation> {
+        if let Location::Simple(simple) = *self {
+            Some(simple)
+        } else {
+            None
+        }
+    }
+    #[inline]
+    pub fn unwrap_simple(&self) -> SimpleLocation {
+        self.simple().unwrap_or_else(|| panic!("Invalid location: {:?}", self))
+    }
+}
+impl PartialOrd for Location {
+    #[inline]
+    fn partial_cmp(&self, other: &Location) -> Option<Ordering> {
+        if let (Location::Simple(this), Location::Simple(other)) = (*self, *other) {
+            Some(this.cmp(&other))
+        } else {
+            None
+        }
+    }
+}
+impl Display for Location {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match *self {
+            Location::Simple(simple) => write!(f, "{}", simple),
+            Location::User(index) => write!(f, "user[{}]", index)
+        }
     }
 }
 
@@ -1054,10 +1108,11 @@ impl<T: SimpleParseError> CastParseError for T {
 /// The convention for the error's display is that each error shouldn't include the index or cause directly,
 /// and should instead rely on the caller to display the causes and position.
 pub trait SimpleParseError: Fail {
-    /// Return the byte-index of the error in the original text
+    /// Return the byte-index of the error in the original text,
+    /// or `None` if we are using a user location
     #[inline]
-    fn index(&self) -> usize {
-        self.location().index
+    fn index(&self) -> Option<usize> {
+        self.location().simple().map(|simple| simple.index)
     }
     fn location(&self) -> Location;
     /// Give a mutable reference to this parser's location
@@ -1347,7 +1402,7 @@ impl Ident {
             Err(StringParseError::UnexpectedTrailing { location }) => {
                 Err(InvalidIdentError::InvalidChar {
                     location,
-                    invalid: text[location.index..].chars().next().unwrap()
+                    invalid: text[location.unwrap_simple().index..].chars().next().unwrap()
                 })
             }
         }
