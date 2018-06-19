@@ -218,6 +218,25 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
         self.token_index = target;
     }
     #[inline]
+    pub fn ignore<U: Borrow<T>>(&mut self, token: U) -> bool {
+        if self.peek() == Some(token.borrow()) {
+            self.pop();
+            true
+        } else {
+            false
+        }
+    }
+    #[inline]
+    pub fn ignore_all<U: Borrow<T>>(&mut self, token: U) -> bool {
+        let token = token.borrow();
+        let mut ignored = false;
+        while self.peek() == Some(token) {
+            self.pop();
+            ignored = true;
+        }
+        ignored
+    }
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.token_index >= self.tokens.len()
     }
