@@ -185,6 +185,26 @@ impl<T> Lazy<T> {
     pub fn unwrap(&self) -> &T {
         self.get().expect("Called Lazy::unwrap() on an uninitialized value!")
     }
+    /// The failable counterpart to `load`,
+    /// which propagates whatever errors are returned by the closure.
+    ///
+    /// If the lazy is already initialized,
+    /// then no errors can possibly occur since we already have a value.
+    #[inline]
+    pub fn try_load<E, F: FnMut() -> Result<T, E>>(&self, loader: F) -> Result<&T, E> {
+        match self.get() {
+            Some(value) => Ok(value),
+            None => self.try_load_fallback(loader)
+        }
+    }
+    /// Loads the contents of this lazy,
+    /// lazily invoking the closure if it's currently uninitialized.
+    ///
+    /// Since this initializes the lazy using the provided closure,
+    /// further calls will load will succeed without invoking the closure.
+    ///
+    /// ## Panics
+    /// If the loader function initializes the cell
     #[inline]
     pub fn load<F: FnOnce() -> T>(&self, loader: F) -> &T {
         self.get().unwrap_or_else(|| self.load_fallback(loader))
@@ -196,6 +216,14 @@ impl<T> Lazy<T> {
          * In that case we want to panic instead of triggering undefined behavior
          */
         self.initialize(loader())
+    }
+    #[cold]
+    fn try_load_fallback<E, F: FnOnce() -> Result<T, E>>(&self, loader: F) -> Result<&T, E> {
+        /*
+         * NOTE: We can't just unchecked_set in case the load callback manually initialized.
+         * In that case we want to panic instead of triggering undefined behavior
+         */
+        Ok(self.initialize(loader()?))
     }
     #[inline]
     pub fn get_mut(&mut self) -> Option<&mut T> {
