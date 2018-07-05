@@ -1,7 +1,7 @@
 use std::mem;
 use std::cmp::Ordering;
 use std::hash::BuildHasherDefault;
-use std::alloc::{Layout, Global, Alloc, oom};
+use std::alloc::{Layout, Global, Alloc, handle_alloc_error};
 use std::ptr::NonNull;
 
 use itertools::Itertools;
@@ -176,14 +176,15 @@ pub fn bulk_unwrap<T>(target: Vec<Option<T>>) -> Vec<T> {
             }
             // Realloc the memory with the new size of `T`
             debug_assert!(capacity > 0);
+            let layout = Layout::from_size_align(
+                capacity * mem::size_of::<Option<T>>(),
+                mem::align_of::<Option<T>>()
+            ).unwrap();
             let realloc_ptr = Global.realloc(
                 NonNull::new_unchecked(original_start_ptr as *mut _),
-                Layout::from_size_align(
-                    capacity * mem::size_of::<Option<T>>(),
-                    mem::align_of::<Option<T>>()
-                ).unwrap(),
+                layout,
                 capacity * mem::size_of::<T>()
-            ).unwrap_or_else(|_| oom());
+            ).unwrap_or_else(|_| handle_alloc_error(layout));
             Vec::from_raw_parts(realloc_ptr.as_ptr() as *mut T, len, capacity)
         }
     } else {
