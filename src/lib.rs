@@ -108,7 +108,7 @@ pub mod logging;
 pub use self::lazy::{AtomicLazy, Lazy};
 pub use self::collect::{
     SmallBitSet, SeaHashOrderMap, SliceCompare,
-    SeaHashOrderSet, VecMap, VecSet
+    SeaHashOrderSet, VecMap, VecSet, FindSingle
 };
 #[deprecated(note = "Please import directly from `two_sided_vec`")]
 pub use two_sided_vec::TwoSidedVec;
