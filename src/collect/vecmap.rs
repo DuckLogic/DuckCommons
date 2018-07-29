@@ -180,6 +180,11 @@ impl<K: Ord, V> VecMap<K, V> {
     pub fn retain<F: FnMut(&K, &mut V) -> bool>(&mut self, mut func: F) {
         self.0.drain_filter(|&mut (ref key, ref mut value)| !func(key, value));
     }
+    /// Pop the last entry from the VecMap
+    #[inline]
+    pub fn pop(&mut self) -> Option<(K, V)> {
+        self.0.pop()
+    }
 }
 impl<K: Ord, V> Index<K> for VecMap<K, V> {
     type Output = V;
