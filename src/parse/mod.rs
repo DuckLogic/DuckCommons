@@ -538,7 +538,7 @@ impl<'a, T: Token + 'a> Iterator for PeekingIter<'a, T> {
 }
 /// Indicates that a type has a default variant that can be created with just an index
 pub trait DefaultParseError: SimpleParseError {
-    fn default_error(index: usize) -> Self;
+    fn default_error(location: Location) -> Self;
 }
 /// Indicates that a `SimpleParseError` can be created directly from a cause and index
 pub trait FromParseError<T>: SimpleParseError {
@@ -830,7 +830,7 @@ impl<'a> SimpleParser<'a> {
     /// Very useful if you have some sort of default 'syntax error' type, which you want to create easily.
     #[inline]
     pub fn error<E: DefaultParseError>(&self) -> Result<!, E> {
-        Err(E::default_error(self.current_index()))
+        Err(E::default_error(self.current_location()))
     }
     #[inline]
     pub fn current_index(&self) -> usize {
