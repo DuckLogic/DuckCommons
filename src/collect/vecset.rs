@@ -56,6 +56,10 @@ impl<T: Ord> VecSet<T> {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+    #[inline]
+    pub fn clear(&mut self) {
+        self.0.clear()
+    }
 }
 impl<T: Ord> Default for VecSet<T> {
     #[inline]
