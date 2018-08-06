@@ -1,4 +1,4 @@
-use std::iter;
+use std::{mem, iter};
 use std::fmt::{self, Formatter, Debug};
 
 use super::VecMap;
@@ -59,6 +59,14 @@ impl<T: Ord> VecSet<T> {
     #[inline]
     pub fn clear(&mut self) {
         self.0.clear()
+    }
+}
+impl<T: Ord> From<Vec<T>> for VecSet<T> {
+    #[inline]
+    fn from(vec: Vec<T>) -> Self {
+        // TODO: Is this really nessicarry?
+        assert_eq!(mem::size_of::<T>(), mem::size_of::<(T, ())>());
+        VecSet(VecMap::from_vector(unsafe { mem::transmute::<Vec<T>, Vec<(T, ())>>(vec) }, false))
     }
 }
 impl<T: Ord> Default for VecSet<T> {
@@ -153,3 +161,36 @@ impl<'a, T: Ord + 'a> iter::DoubleEndedIterator for Drain<'a, T> {
 impl<'a, T: Ord + 'a> iter::ExactSizeIterator for Drain<'a, T> {}
 impl<'a, T: Ord + 'a> iter::FusedIterator for Drain<'a, T> {}
 unsafe impl<'a, T: Ord + 'a> iter::TrustedLen for Drain<'a, T> {}
+
+#[cfg(test)]
+mod test {
+    use super::VecSet;
+    #[test]
+    fn test_from_vector() {
+        let mut expected = VecSet::new();
+        expected.insert(1);
+        expected.insert(2);
+        expected.insert(3);
+        assert_eq!(
+            VecSet::from(vec![1, 2, 3]),
+            expected
+        );
+        let mut expected = VecSet::new();
+        expected.insert(None);
+        expected.insert(Some("food"));
+        expected.insert(None);
+        assert_eq!(
+            VecSet::from(vec![None, Some("food"), None]),
+            expected
+        );
+
+        let mut expected = VecSet::new();
+        expected.insert(None);
+        expected.insert(Some(428));
+        expected.insert(None);
+        assert_eq!(
+            VecSet::from(vec![None, Some(428), None]),
+            expected
+        );
+    }
+}

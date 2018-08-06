@@ -1509,7 +1509,7 @@ mod test {
         assert_eq!(Ident::new("bob"), Ident(Arc::from("bob")));
         assert_eq!(Ident::parse("bob ").unwrap_err(), InvalidIdentError::InvalidChar {
             invalid: ' ',
-            location: Location::simple(3)
+            location: Location::Simple(SimpleLocation::simple(3))
         });
         let mut parser = SimpleParser::from("bob loves food");
         assert_eq!(parser.parse::<Ident, InvalidIdentError>().unwrap(), Ident::new("bob"));
