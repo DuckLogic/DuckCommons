@@ -66,7 +66,7 @@ impl<T: Ord> From<Vec<T>> for VecSet<T> {
     fn from(vec: Vec<T>) -> Self {
         // TODO: Is this really nessicarry?
         assert_eq!(mem::size_of::<T>(), mem::size_of::<(T, ())>());
-        VecSet(VecMap::from_vector(unsafe { mem::transmute::<Vec<T>, Vec<(T, ())>>(vec) }, false))
+        VecSet(VecMap::from_vector(unsafe { mem::transmute::<Vec<T>, Vec<(T, ())>>(vec) }, true))
     }
 }
 impl<T: Ord> Default for VecSet<T> {

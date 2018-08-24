@@ -1,6 +1,4 @@
 #![feature(
-    nonzero, // Needed for NonZeroIndex
-    core, // Needed for NonZero
     dropck_eyepatch, // Needed for custom collections
     const_fn, // I refuse to break encapsulation
     box_syntax, // This is much nicer than Box::new
@@ -8,9 +6,7 @@
     attr_literals, // This seems to be needed for AutoError attributes
     specialization, // Needed for maybe_debug
     alloc, allocator_api, // Needed for RawTwoSidedVec
-    fused, // Faster iterators
     trusted_len, // Faster iterators
-    shared, unique, pointer_methods, // Awesome pointer helpers
     core_intrinsics, // I like microoptimization and undefined behavior
     type_ascription, // Type ascription is awesome
     unboxed_closures, // Apparently you can only manually implement closures on nightly -_-
@@ -18,12 +14,10 @@
     never_type, // The never type is awesome
     pattern, // We use the pattern API for parsing
     str_escape, // I think this is used for printing?
-    option_filter, // Why isn't this already stable?
     drain_filter, // Better alternative to retain
     exhaustive_patterns, // Needed to match exhaustively on the never type
-    stdsimd, // SIMD optimization
     align_offset, // Needed to compute alignment for use with SIMD
-    proc_macro, proc_macro_non_items, // Needed for strip_expr_nesting
+    proc_macro_non_items, // Needed for strip_expr_nesting
     exact_size_is_empty, // Why isn't this already stable?
     ptr_offset_from, // Helps make pointer logic cleaner
 )]

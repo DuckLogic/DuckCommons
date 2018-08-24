@@ -45,10 +45,11 @@ memchr = "^1.0.1"
 # Bitset library needed for petgraph
 fixedbitset = "^0.1.8"
 # Compile time maps
-phf = "^0.7.22"
-phf_macros = "^0.7.22"
+# TODO: Use upstream version of PHF
+phf = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2018-08-23" }
+phf_macros = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2018-08-23" }
 # Better concurrency primitives
-parking_lot = { version = "^0.4.8", features = ["nightly"] }
+parking_lot = { version = "^0.6.3", features = ["nightly"] }
 # Generic traits for numbers
 num-traits = "^0.1.40"
 # Rust itertools
@@ -74,3 +75,12 @@ features = ["serde-1",]
 path = "derive"
 
 [workspace]
+
+
+[patch.crates-io]
+# TODO: Use upstream version of phf
+phf = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2018-08-23" }
+phf_macros = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2018-08-23" }
+phf_shared = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2018-08-23" }
+phf_generator = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2018-08-23" }
+

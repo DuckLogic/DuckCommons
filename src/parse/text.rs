@@ -19,8 +19,8 @@ pub fn try_split_at(target: &str, index: usize) -> Option<(&str, &str)> {
 #[inline(always)]
 pub unsafe fn unchecked_split_at(target: &str, index: usize) -> (&str, &str) {
     debug_assert!(target.is_char_boundary(index));
-    (target.slice_unchecked(0, index),
-     target.slice_unchecked(index, target.len()))
+    (target.get_unchecked(0..index),
+     target.get_unchecked(index..target.len()))
 }
 
 

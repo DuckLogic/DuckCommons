@@ -1,5 +1,4 @@
 use std::mem;
-use std::simd::*;
 
 /// Utilities for comparing slices
 pub trait SliceCompare<T> {
@@ -15,29 +14,36 @@ default impl<T: PartialEq> SliceCompare<T> for [T] {
         self.iter().all(|element| *element == expected_element)
     }
 }
-macro_rules! vector_slice_compare {
-    ($target:ty, $vector:ident) => {
+macro_rules! unrolled_compare {
+    ($target:ty) => {
         fn all_equal(&self, expected_element: $target) -> bool {
-            // Yay, we get to use vector comparisons!
-            let expected_vector = $vector::splat(expected_element);
-            let mut remaining = self;
-            while !remaining.is_empty() &&
-                remaining.as_ptr().align_offset(mem::align_of::<$vector>()) != 0 {
-                if remaining[0] != expected_element {
-                    return false
+            const IDEAL_SIZE: usize = 32 / mem::size_of::<$target>();
+            let start = self.as_ptr();
+            let overflow = self.len() % IDEAL_SIZE;
+            let stop = unsafe { start.add(self.len() - overflow) };
+            let mut ptr = start;
+            while ptr < stop {
+                unsafe {
+                    let elements = *(ptr as *const [$target; IDEAL_SIZE]);
+                    let mut all_equals = true;
+                    for i in 0..IDEAL_SIZE {
+                        all_equals &= *elements.get_unchecked(i) == expected_element;
+                    }
+                    if !all_equals {
+                        return false;
+                    }
+                    ptr = ptr.add(IDEAL_SIZE);
                 }
-                remaining = &remaining[1..];
             }
-            while remaining.len() >= $vector::lanes() {
-                let actual_vector = $vector::load_aligned(remaining);
-                if actual_vector.ne(expected_vector).any() {
-                    return false
-                }
-                remaining = &remaining[$vector::lanes()..];
-            }
-            for &value in remaining {
-                if value != expected_element {
-                    return false
+            debug_assert_eq!(ptr as usize, stop as usize);
+            let stop = unsafe { start.add(self.len()) };
+            while ptr < stop {
+                unsafe {
+                    let element = *ptr;
+                    if element != expected_element {
+                        return false;
+                    }
+                    ptr = ptr.add(1);
                 }
             }
             true
@@ -45,16 +51,16 @@ macro_rules! vector_slice_compare {
     };
 }
 impl SliceCompare<u64> for [u64] {
-    vector_slice_compare!(u64, u64x8);
+    unrolled_compare!(u64);
 }
 impl SliceCompare<u32> for [u32] {
-    vector_slice_compare!(u32, u32x16);
+    unrolled_compare!(u32);
 }
 impl SliceCompare<u16> for [u16] {
-    vector_slice_compare!(u16, u16x32);
+    unrolled_compare!(u16);
 }
 impl SliceCompare<u8> for [u8] {
-    vector_slice_compare!(u8, u8x64);
+    unrolled_compare!(u8);
 }
 
 #[cfg(test)]
