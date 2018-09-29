@@ -1,4 +1,4 @@
-#![feature(box_patterns, box_syntax, proc_macro)]
+#![feature(box_patterns, box_syntax)]
 #![allow(unused_variables)] // The compiler doesn't know when quote! uses variables :(
 #![allow(dead_code)] // TODO: Cleanup
 #![recursion_limit = "1024"]
@@ -17,7 +17,7 @@ use std::collections::HashSet;
 use std::time::{Instant, Duration};
 
 use regex::Regex;
-use proc_macro::TokenStream;
+use self::proc_macro::TokenStream;
 use syn::{
     DeriveInput, Data, Lit, Attribute, Path, Type, PathArguments, AngleBracketedGenericArguments,
     Field, Ident, Fields, Meta, NestedMeta, DataEnum, DataStruct, GenericArgument,

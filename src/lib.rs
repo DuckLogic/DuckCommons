@@ -3,7 +3,6 @@
     const_fn, // I refuse to break encapsulation
     box_syntax, // This is much nicer than Box::new
     optin_builtin_traits, // This is much nicer than PhantomData
-    attr_literals, // This seems to be needed for AutoError attributes
     specialization, // Needed for maybe_debug
     alloc, allocator_api, // Needed for RawTwoSidedVec
     trusted_len, // Faster iterators
