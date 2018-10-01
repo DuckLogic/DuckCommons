@@ -10,22 +10,24 @@ extern crate quote;
 extern crate regex;
 #[macro_use]
 extern crate lazy_static;
+extern crate proc_macro2;
 
 use std::io::{self, Write};
 use std::env::{self, VarError};
 use std::collections::HashSet;
 use std::time::{Instant, Duration};
+use std::process::{Stdio, Command};
 
 use regex::Regex;
-use self::proc_macro::TokenStream;
+use self::proc_macro::TokenStream as StdTokenStream;
+use proc_macro2::{TokenStream, Span};
 use syn::{
     DeriveInput, Data, Lit, Attribute, Path, Type, PathArguments, AngleBracketedGenericArguments,
     Field, Ident, Fields, Meta, NestedMeta, DataEnum, DataStruct, GenericArgument,
     MetaList, MetaNameValue, TypePath, Expr
 };
-use quote::ToTokens;
-use syn::synom::{Synom};
-use std::process::{Stdio, Command};
+use quote::{ToTokens, TokenStreamExt};
+use syn::parse::{Result as SynResult, Parse, ParseStream, ParseBuffer};
 
 /*
  * !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -33,7 +35,7 @@ use std::process::{Stdio, Command};
  * !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
  */
 
-fn destructure_each<F>(fields: &Fields, mut func: F) -> quote::Tokens
+fn destructure_each<F>(fields: &Fields, mut func: F) -> TokenStream
     where F: FnMut(&Field) -> DestructuringStyle {
     match *fields {
         Fields::Named(_) => {
@@ -46,7 +48,7 @@ fn destructure_each<F>(fields: &Fields, mut func: F) -> quote::Tokens
         },
         Fields::Unnamed(_) => {
             let destructuring = fields.iter().enumerate().map(|(id, field)| {
-                let ident = Ident::from(format!("value_{}", id));
+                let ident = ident(format!("value_{}", id));
                 let style = func(field).create();
                 quote!(#style #ident)
             }).collect::<Vec<_>>();
@@ -65,11 +67,11 @@ enum DestructuringStyle {
 }
 impl DestructuringStyle {
     #[inline]
-    fn destructure(&self, variant: &Fields) -> quote::Tokens {
+    fn destructure(&self, variant: &Fields) -> TokenStream {
         destructure_each(variant, |_| *self)
     }
     #[inline]
-    fn create(&self) -> quote::Tokens {
+    fn create(&self) -> TokenStream {
         match *self {
             DestructuringStyle::Ref => quote!(ref),
             DestructuringStyle::RefMut => quote!(ref mut),
@@ -82,7 +84,7 @@ impl DestructuringStyle {
 ///
 /// These are often common when generating a list of expressions from recursive macro invocations.
 #[proc_macro]
-pub fn strip_expr_nesting(input: TokenStream) -> TokenStream {
+pub fn strip_expr_nesting(input: StdTokenStream) -> StdTokenStream {
     let start = Instant::now();
     let expr_nesting = syn::parse(input.clone())
         .unwrap_or_else(|e| panic!("Invalid invoation strip_expr_nesting!({}): {}", input, e));
@@ -90,7 +92,7 @@ pub fn strip_expr_nesting(input: TokenStream) -> TokenStream {
     debug_macro(start.elapsed(), "strip_expr_nesting", input, &tokens);
     tokens.into()
 }
-fn impl_strip_expr_nesting(input: &MaybeExprNesting) -> quote::Tokens {
+fn impl_strip_expr_nesting(input: &MaybeExprNesting) -> TokenStream {
     let exprs = input.as_exprs();
     quote!([#(#exprs),*])
 }
@@ -105,11 +107,17 @@ impl MaybeExprNesting {
         result
     }
 }
-impl Synom for MaybeExprNesting {
-    named!(parse -> Self, alt!(
-        syn!(ExprNesting) => { |nesting| MaybeExprNesting(Some(box nesting)) } |
-        brackets!(epsilon!()) => { |_| MaybeExprNesting(None) }
-    ));
+impl Parse for MaybeExprNesting {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        let content: ParseBuffer;
+        bracketed!(content in input);
+        if content.is_empty() {
+            Ok(MaybeExprNesting(None))
+        } else {
+            let nesting = content.parse::<ExprNesting>()?;
+            Ok(MaybeExprNesting(Some(box nesting)))
+        }
+    }
 }
 #[derive(Debug)]
 struct ExprNesting {
@@ -124,17 +132,17 @@ impl ExprNesting {
         }
     }
 }
-impl Synom for ExprNesting {
-    named!(parse -> Self, map!(brackets!(do_parse!(
-        first: syn!(Expr) >>
-        punct!(,) >>
-        other: syn!(MaybeExprNesting) >>
-        (ExprNesting { first, other })
-    )), |(_, nesting)| nesting));
+impl Parse for ExprNesting {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        let first = input.parse::<Expr>()?;
+        input.parse::<Token![,]>()?;
+        let other = input.parse::<MaybeExprNesting>()?;
+        Ok(ExprNesting { first, other })
+    }
 }
 
 #[proc_macro_derive(Step)]
-pub fn step(input: TokenStream) -> TokenStream {
+pub fn step(input: StdTokenStream) -> StdTokenStream {
     let start = Instant::now();
     let ast = syn::parse(input).unwrap();
     let tokens = impl_step(&ast);
@@ -142,7 +150,7 @@ pub fn step(input: TokenStream) -> TokenStream {
     tokens.into()
 }
 
-fn impl_step(ast: &DeriveInput) -> quote::Tokens {
+fn impl_step(ast: &DeriveInput) -> TokenStream {
     let name = &ast.ident;
     if let Data::Struct(DataStruct { fields: ref fields @ Fields::Unnamed(_), .. }) = ast.data {
         assert_eq!(fields.iter().len(), 1, "Unable to derive Step for {}, must have only one field", name);
@@ -200,7 +208,7 @@ fn impl_step(ast: &DeriveInput) -> quote::Tokens {
 
 /// Implement `slog::SerdeValue` on the specified type by delegating to `SerializeValue`
 #[proc_macro_derive(SerdeValue, attributes(serialize_fallback))]
-pub fn serde_value(input: TokenStream) -> TokenStream {
+pub fn serde_value(input: StdTokenStream) -> StdTokenStream {
     let start = Instant::now();
     let ast = syn::parse(input).unwrap();
     let tokens = impl_serde_value(&ast);
@@ -208,11 +216,11 @@ pub fn serde_value(input: TokenStream) -> TokenStream {
     tokens.into()
 }
 
-fn impl_serde_value(ast: &DeriveInput) -> ::quote::Tokens {
+fn impl_serde_value(ast: &DeriveInput) -> TokenStream {
     let target_name = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
     let serialize_fallback = match ast.attrs.iter()
-        .find(|p| p.path == Path::from("serialize_fallback")) {
+        .find(|p| p.path == Path::from(ident("serialize_fallback"))) {
         None => String::from(r##"format!("{:?}", self)"##),
         Some(ref attribute) => {
             if let Some(Meta::NameValue(MetaNameValue { lit: Lit::Str(ref value), .. })) = attribute.interpret_meta() {
@@ -257,25 +265,25 @@ impl DisplayString {
     fn use_indexed_field(&mut self, index: u32) {
         self.indexed_fields = self.indexed_fields.max(index + 1);
     }
-    fn access_variables(&self) -> quote::Tokens {
+    fn access_variables(&self) -> TokenStream {
         self.access(
             |index| {
-                let name = Ident::from(format!("value_{}", index));
+                let name = ident(format!("value_{}", index));
                 quote!(#name)
             },
             |name| quote!(#name)
         )
     }
-    fn access_fields(&self, target: quote::Tokens) -> quote::Tokens {
+    fn access_fields(&self, target: TokenStream) -> TokenStream {
         self.access(
             |index| quote!(#target.#index),
             |name| quote!(#target.#name)
         )
     }
     #[inline]
-    fn access<IF, NF>(&self, mut indexed: IF, mut named: NF) -> quote::Tokens
-        where IF: FnMut(u32) -> quote::Tokens, NF: FnMut(&Ident) -> quote::Tokens {
-        let mut result = quote::Tokens::new();
+    fn access<IF, NF>(&self, mut indexed: IF, mut named: NF) -> TokenStream
+        where IF: FnMut(u32) -> TokenStream, NF: FnMut(&Ident) -> TokenStream {
+        let mut result = TokenStream::new();
         for index in 0..self.indexed_fields {
             result.append_all(indexed(index));
             ",".to_tokens(&mut result);
@@ -283,7 +291,7 @@ impl DisplayString {
         for name in &self.named_fields {
             name.to_tokens(&mut result);
             "=".to_tokens(&mut result);
-            result.append_all(named(&Ident::from(name.clone())));
+            result.append_all(named(&ident(name.clone())));
             ",".to_tokens(&mut result);
         }
         result
@@ -325,14 +333,14 @@ impl DisplayString {
 }
 
 #[proc_macro_derive(SimpleParseError, attributes(parse_error))]
-pub fn simple_parse_error(input: TokenStream) -> TokenStream {
+pub fn simple_parse_error(input: StdTokenStream) -> StdTokenStream {
     let start = Instant::now();
     let ast = syn::parse(input).unwrap();
     let tokens = simple_parse_error_impl(&ast);
     debug_derive(start.elapsed(), "SimpleParseError", &ast.ident, &tokens);
     tokens.into()
 }
-fn simple_parse_error_impl(ast: &DeriveInput) -> quote::Tokens {
+fn simple_parse_error_impl(ast: &DeriveInput) -> TokenStream {
     let error_name = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
     match ast.data {
@@ -469,13 +477,13 @@ impl ErrorConfiguration {
         let mut display_format = None;
         let mut cause_ignored = false;
         let mut force_from = false;
-        let error_path = Path::from("error");
+        let error_path = Path::from(ident("error"));
         for attr in attrs {
             if attr.path == error_path {
                 if let Some(Meta::List(MetaList { ref nested, .. })) = attr.interpret_meta() {
                     'attributeHandling: for entry in nested.iter() {
                         if let NestedMeta::Meta(Meta::List(MetaList { ref ident, ref nested, .. })) = *entry {
-                            match (ident.as_ref(), nested.len()) {
+                            match (&*ident.to_string(), nested.len()) {
                                 ("description", 1) => {
                                     if let NestedMeta::Literal(Lit::Str(ref value)) = nested[0] {
                                         if description.is_some() {
@@ -496,7 +504,7 @@ impl ErrorConfiguration {
                                 },
                                 ("from", 1) => {
                                     if let NestedMeta::Meta(Meta::Word(ref option)) = nested[0] {
-                                        match option.as_ref() {
+                                        match &*option.to_string() {
                                             "forced" => {
                                                 if force_from {
                                                     return Err("Already from(forced)".to_owned())
@@ -512,7 +520,7 @@ impl ErrorConfiguration {
                                 }
                                 ("cause", 1) => {
                                     if let NestedMeta::Meta(Meta::Word(ref option)) = nested[0] {
-                                        match option.as_ref() {
+                                        match &*option.to_string() {
                                             "ignored" => {
                                                 if cause_ignored {
                                                     return Err("Already cause(ignored)".to_owned())
@@ -578,8 +586,8 @@ impl BasicType {
         if let Type::Path(TypePath { qself: None, ref path }) = *target {
             if path.segments.len() == 1 {
                 let segment = &path.segments[0];
-                let name = segment.ident.as_ref();
-                match name {
+                let name = segment.ident.to_string();
+                match &*name {
                     "Option" => {
                         if let PathArguments::AngleBracketed(AngleBracketedGenericArguments { ref args, .. }) = segment.arguments {
                             if let GenericArgument::Type(ref param_type) = args[0] {
@@ -592,7 +600,7 @@ impl BasicType {
                     "usize" => return Some(BasicType::MachineInteger(false)),
                     "isize" => return Some(BasicType::MachineInteger(true)),
                     _ => {
-                        if let Some(captures) = INTEGER_PATTERN.captures(name) {
+                        if let Some(captures) = INTEGER_PATTERN.captures(&name) {
                             let signed = &captures[1] == "i";
                             let bits = captures[2].parse::<i32>().unwrap();
                             return Some(BasicType::Integer(if signed { -bits } else { bits }));
@@ -620,18 +628,18 @@ fn find_field<'a, I>(targets: I, name: &str) -> Option<&'a Field> where I: IntoI
 }
 
 #[inline]
-fn create_tokens<T>(target: &T) -> ::quote::Tokens where T: ::quote::ToTokens {
-    let mut tokens = ::quote::Tokens::new();
+fn create_tokens<T>(target: &T) -> TokenStream where T: ::quote::ToTokens {
+    let mut tokens = TokenStream::new();
     target.to_tokens(&mut tokens);
     tokens
 }
-fn debug_derive(duration: Duration, name: &str, ident: &Ident, tokens: &quote::Tokens) {
+fn debug_derive(duration: Duration, name: &str, ident: &Ident, tokens: &TokenStream) {
     debug_macro_raw(duration, name, &format!("derive({}) for {}", name, ident), tokens)
 }
-fn debug_macro(duration: Duration, name: &str, input: TokenStream, tokens: &quote::Tokens) {
+fn debug_macro(duration: Duration, name: &str, input: StdTokenStream, tokens: &TokenStream) {
     debug_macro_raw(duration, name, &format!("{}!({})", name, input), tokens)
 }
-fn debug_macro_raw(duration: Duration, name: &str, id: &str, tokens: &quote::Tokens) {
+fn debug_macro_raw(duration: Duration, name: &str, id: &str, tokens: &TokenStream) {
     match env::var("DEBUG_MACRO") {
         Ok(target) => {
             if target == name {
@@ -683,4 +691,8 @@ fn rustfmt(target: &str) -> io::Result<Option<String>> {
         Some(2) => Ok(None), // Failed to parse properly
         _ => panic!("Unexpected error running rustfmt")
     }
+}
+
+fn ident<T: AsRef<str>>(name: T) -> Ident {
+    Ident::new(name.as_ref(), Span::call_site())
 }

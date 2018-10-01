@@ -8,8 +8,8 @@ publish = false
 proc-macro = true
 
 [dependencies]
-syn = { version = "^0.13.7", features = ["extra-traits"] }
-quote = "^0.5.2"
+syn = { version = "^0.15.6", features = ["full", "extra-traits"] }
+quote = "^0.6.8"
 regex = "^1"
 lazy_static = "^1"
-proc-macro2 = { version = "^0.4", features = ["nightly"] }
+proc-macro2 = { version = "^0.4.19", features = ["nightly"] }

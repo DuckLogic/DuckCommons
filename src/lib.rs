@@ -86,7 +86,6 @@ macro_rules! maybe_debug {
     });
 }
 
-mod macros;
 pub mod collect;
 pub mod math;
 pub mod arena_set;
