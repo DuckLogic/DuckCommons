@@ -1,5 +1,7 @@
 use std::io::{Error as IoError};
 
+use failure_derive::Fail;
+
 /// Serialize the specified value into lz4 compressed bincode
 #[inline]
 #[cfg(all(feature="bincode", feature="lz4"))]

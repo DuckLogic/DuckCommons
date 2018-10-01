@@ -3,6 +3,7 @@ name = "duckcommons-derive"
 version = "0.1.0"
 description = "Automaticatically derives things in DuckCommons"
 publish = false
+edition = "2018"
 
 [lib]
 proc-macro = true

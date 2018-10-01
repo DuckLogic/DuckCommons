@@ -1,7 +1,4 @@
 #![feature(proc_macro_non_items, type_ascription)]
-
-extern crate duckcommons_derive;
-
 use duckcommons_derive::strip_expr_nesting;
 
 #[test]

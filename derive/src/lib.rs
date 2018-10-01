@@ -3,14 +3,6 @@
 #![allow(dead_code)] // TODO: Cleanup
 #![recursion_limit = "1024"]
 extern crate proc_macro;
-#[macro_use]
-extern crate syn;
-#[macro_use]
-extern crate quote;
-extern crate regex;
-#[macro_use]
-extern crate lazy_static;
-extern crate proc_macro2;
 
 use std::io::{self, Write};
 use std::env::{self, VarError};
@@ -24,9 +16,10 @@ use proc_macro2::{TokenStream, Span};
 use syn::{
     DeriveInput, Data, Lit, Attribute, Path, Type, PathArguments, AngleBracketedGenericArguments,
     Field, Ident, Fields, Meta, NestedMeta, DataEnum, DataStruct, GenericArgument,
-    MetaList, MetaNameValue, TypePath, Expr
+    MetaList, MetaNameValue, TypePath, Expr, Token, bracketed,
 };
-use quote::{ToTokens, TokenStreamExt};
+use lazy_static::lazy_static;
+use quote::{quote, ToTokens, TokenStreamExt};
 use syn::parse::{Result as SynResult, Parse, ParseStream, ParseBuffer};
 
 /*
@@ -207,7 +200,7 @@ fn impl_step(ast: &DeriveInput) -> TokenStream {
 }
 
 /// Implement `slog::SerdeValue` on the specified type by delegating to `SerializeValue`
-#[proc_macro_derive(SerdeValue, attributes(serialize_fallback))]
+#[proc_macro_derive(SerdeValue, attributes(serialize_fallback, ))]
 pub fn serde_value(input: StdTokenStream) -> StdTokenStream {
     let start = Instant::now();
     let ast = syn::parse(input).unwrap();
@@ -332,7 +325,7 @@ impl DisplayString {
     }
 }
 
-#[proc_macro_derive(SimpleParseError, attributes(parse_error))]
+#[proc_macro_derive(SimpleParseError, attributes(parse_error, inside_crate))]
 pub fn simple_parse_error(input: StdTokenStream) -> StdTokenStream {
     let start = Instant::now();
     let ast = syn::parse(input).unwrap();
@@ -341,6 +334,7 @@ pub fn simple_parse_error(input: StdTokenStream) -> StdTokenStream {
     tokens.into()
 }
 fn simple_parse_error_impl(ast: &DeriveInput) -> TokenStream {
+    let crate_name = crate_name(ast);
     let error_name = &ast.ident;
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
     match ast.data {
@@ -362,14 +356,14 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> TokenStream {
                     _ => panic!("location field for {}::{} must be a Location or Option<Location>")
                 };
                 if cause.is_some() {
-                    cause_cases.push(quote!(#error_name::#name { ref cause, .. } => ::duckcommons::parse::_cast_parse_error(cause)));
+                    cause_cases.push(quote!(#error_name::#name { ref cause, .. } => #crate_name::parse::_cast_parse_error(cause)));
                 } else {
                     cause_cases.push(quote!(#error_name::#name { .. } => None));
                 }
                 if let Some(cause) = cause {
                     if variant.fields.iter().len() == 2 {
                         from_implementations.push(quote! {
-                            impl  #impl_generics ::duckcommons::parse::FromParseError<#cause> for #error_name #ty_generics #where_clause {
+                            impl  #impl_generics #crate_name::parse::FromParseError<#cause> for #error_name #ty_generics #where_clause {
                                 #[inline]
                                 fn from_cause(location: Location, cause: #cause) -> Self {
                                     #error_name::#name { location, cause }
@@ -383,7 +377,7 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> TokenStream {
                 } else {
                     location_mut_cases.push(quote! {
                         #error_name::#name { location: Some(ref mut location), .. } => location,
-                        #error_name::#name { location: None, .. } => ::duckcommons::parse::_missing_index(self)
+                        #error_name::#name { location: None, .. } => #crate_name::parse::_missing_index(self)
                     });
                 }
                 if !optional_location {
@@ -391,26 +385,26 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> TokenStream {
                 } else {
                     location_cases.push(quote! {
                         #error_name::#name { location: Some(location), .. } => location,
-                        #error_name::#name { location: None, .. } => ::duckcommons::parse::_missing_index(self)
+                        #error_name::#name { location: None, .. } => #crate_name::parse::_missing_index(self)
                     })
                 }
             }
             quote! {
-                impl #impl_generics ::duckcommons::parse::SimpleParseError for #error_name #ty_generics #where_clause {
+                impl #impl_generics #crate_name::parse::SimpleParseError for #error_name #ty_generics #where_clause {
                     #[inline]
-                    fn location(&self) -> ::duckcommons::parse::Location {
+                    fn location(&self) -> #crate_name::parse::Location {
                         match *self {
                             #(#location_cases),*
                         }
                     }
                     #[inline]
-                    fn location_mut(&mut self) -> &mut ::duckcommons::parse::Location {
+                    fn location_mut(&mut self) -> &mut #crate_name::parse::Location {
                         match *self {
                             #(#location_mut_cases),*
                         }
                     }
                     #[inline]
-                    fn parse_cause(&self) -> Option<&::duckcommons::parse::SimpleParseError> {
+                    fn parse_cause(&self) -> Option<&#crate_name::parse::SimpleParseError> {
                         match *self {
                             #(#cause_cases),*
                         }
@@ -423,17 +417,17 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> TokenStream {
             assert_eq!(fields.iter().len(), 1, "Can only derive SimpleParseError for newtype tuple structs!");
             let delegate_type = fields.iter().nth(0).unwrap();
             quote! {
-                impl #impl_generics ::duckcommons::parse::SimpleParseError for #error_name #ty_generics #where_clause {
+                impl #impl_generics #crate_name::parse::SimpleParseError for #error_name #ty_generics #where_clause {
                     #[inline]
-                    fn location(&self) -> ::duckcommons:parse::Location {
+                    fn location(&self) -> #crate_name:parse::Location {
                         self.0.location()
                     }
                     #[inline]
-                    fn location_mut(&self) -> &mut ::duckcommons:parse::Location {
+                    fn location_mut(&self) -> &mut #crate_name:parse::Location {
                         self.0.location_mut()
                     }
                     #[inline]
-                    fn parse_cause(&self) -> Option<&::duckcommons::parse::SimpleParseError> {
+                    fn parse_cause(&self) -> Option<&#crate_name::parse::SimpleParseError> {
                         self.0.parse_cause()
                     }
                 }
@@ -444,17 +438,17 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> TokenStream {
                 .map(|field| &field.ty);
             let give_cause = if cause.is_some() { quote! { Some(&self.cause) } } else { quote!(None) };
             quote! {
-                impl #impl_generics ::duckcommons::parse::SimpleParseError for #error_name #ty_generics #where_clause {
+                impl #impl_generics #crate_name::parse::SimpleParseError for #error_name #ty_generics #where_clause {
                     #[inline]
-                    fn location(&self) -> ::duckcommons:parse::Location {
+                    fn location(&self) -> #crate_name:parse::Location {
                         self.location
                     }
                     #[inline]
-                    fn location_mut(&mut self) -> &mut ::duckcommons:parse::Location {
+                    fn location_mut(&mut self) -> &mut #crate_name:parse::Location {
                         &mut self.location
                     }
                     #[inline]
-                    fn parse_cause(&self) -> Option<&::duckcommons::parse::SimpleParseError> {
+                    fn parse_cause(&self) -> Option<&#crate_name::parse::SimpleParseError> {
                         #give_cause
                     }
                 }
@@ -462,6 +456,17 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> TokenStream {
         },
         Data::Struct(DataStruct { fields: Fields::Unit, .. }) => unimplemented!("Unit structs"),
         Data::Union(_) => unimplemented!("Unions")
+    }
+}
+fn crate_name(ast: &DeriveInput) -> TokenStream {
+    let inside_crate = ast.attrs.iter().any(|a| match a.interpret_meta() {
+        Some(Meta::Word(ref word)) if word.to_string() == "inside_crate" => true,
+        _ => false
+    });
+    if inside_crate {
+        quote!(crate)
+    } else {
+        quote!(::duckcommons)
     }
 }
 #[derive(Debug)]

@@ -4,7 +4,7 @@
 //! which is an ASCII-only version of the stdlib `Pattern`.
 use std::str::pattern::{Pattern};
 
-use parse::text::unchecked_split_at;
+use crate::parse::text::unchecked_split_at;
 
 /// Check if the specified string is an ASCII word,
 /// matching the regex `\w*`

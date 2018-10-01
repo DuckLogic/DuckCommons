@@ -4,6 +4,7 @@
 #[macro_export]
 macro_rules! fixed_bitset {
     ($capacity:expr, { $($element:expr),* }) => {{
+        #[allow(unused_mut)]
         let mut result = ::fixedbitset::FixedBitSet::with_capacity($capacity);
         $(result.insert($element);)*
         result

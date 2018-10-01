@@ -16,11 +16,14 @@ use smallvec::SmallVec;
 use regex::Regex;
 use failure::Fail;
 use itertools::Itertools;
+use lazy_static::lazy_static;
+use duckcommons_derive::*;
+use log::{trace, log};
 
 pub mod ascii;
 pub mod text;
 use self::ascii::AsciiPattern;
-use Lazy;
+use crate::Lazy;
 
 /// When compiling in debug mode, checks a special `PARSER_SHOULD_PANIC` flag,
 /// which will make all unexpected tokens trigger a panic instead of an error.
@@ -81,11 +84,11 @@ thread_local! {
 }
 lazy_static! {
     static ref ENV_PARSER_PANIC_LEVEL: u32 = {
-        match ::env::environment_config::<u32>("PARSER_PANIC_LEVEL") {
+        match crate::env::environment_config::<u32>("PARSER_PANIC_LEVEL") {
             Some(level) => level,
             None => {
                 // Default panic verbosity level is 1
-                match ::env::environment_flag("PARSER_SHOULD_PANIC") {
+                match crate::env::environment_flag("PARSER_SHOULD_PANIC") {
                     Some(true) => 1,
                     Some(false) | None => 0
                 }
@@ -180,7 +183,7 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
     #[inline]
     pub fn new(tokens: &'a [(Location, T)]) -> Self {
         if tokens.iter().all(|(location, _)| location.is_simple()) {
-            assert!(::collect::is_sorted_by_key(tokens, |&(index, _)| index.unwrap_simple()));
+            assert!(crate::collect::is_sorted_by_key(tokens, |&(index, _)| index.unwrap_simple()));
         }
         TokenStream { tokens, token_index: 0 }
     }
@@ -424,7 +427,7 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
                     continue 'parseLoop;
                 },
                 1 => {
-                    trace!("Finished parse_delimiter at {:?}", self);
+                    trace!("Finished parse_delimiter at parser = {:?}", self);
                     return Ok(result)
                 },
                 _ => unreachable!()
@@ -1081,6 +1084,7 @@ pub trait SimpleParse<'a>: Sized {
     }
 }
 #[derive(Fail, SimpleParseError, Debug)]
+#[inside_crate]
 pub enum StringParseError<E: SimpleParseError> {
     #[fail(display = "Unexpected trailing data")]
     UnexpectedTrailing {
@@ -1219,6 +1223,7 @@ impl Display for NumericLiteral {
     }
 }
 #[derive(Fail, SimpleParseError, Debug, Clone)]
+#[inside_crate]
 pub enum NumericLiteralParseError {
     #[fail(display = "Invalid number")]
     InvalidNumber {
@@ -1298,6 +1303,7 @@ impl<'a> SimpleParse<'a> for StringLiteral {
     }
 }
 #[derive(Debug, Clone, Copy, SimpleParseError, Fail)]
+#[inside_crate]
 pub enum StringLiteralParseError {
     #[fail(display = "Invalid string, expected start quote")]
     ExpectedStartQuote {
@@ -1372,6 +1378,7 @@ fn parse_hex_char(b: u8) -> Option<u8> {
     }
 }
 #[derive(Debug, Clone, SimpleParseError, Fail)]
+#[inside_crate]
 pub enum HexadecimalParseError {
     #[fail(display = "Expected valid hexadecimal")]
     EmptyHex {
@@ -1489,6 +1496,7 @@ impl<'a> SimpleParse<'a> for Ident {
 }
 
 #[derive(Debug, Fail, SimpleParseError, Clone, Eq, PartialEq)]
+#[inside_crate]
 pub enum InvalidIdentError {
     #[fail(display = "Empty identifier")]
     Empty {

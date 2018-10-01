@@ -7,7 +7,7 @@ use seahash::SeaHasher;
 use typed_arena::Arena;
 use ordermap::{OrderMap, Equivalent};
 
-use IntoOwned;
+use crate::IntoOwned;
 
 type InternalMap<T> = OrderMap<HashedPtr<T>, NonNull<T>, BuildHasherDefault<IdiotHasher>>;
 

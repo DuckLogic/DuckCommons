@@ -24,46 +24,6 @@
     type_complexity, // Sometimes I just like complex types ^_^
     cast_lossless, // I disagree with this lint
 ))]
-extern crate petgraph;
-extern crate smallvec;
-extern crate seahash;
-extern crate typed_arena;
-extern crate ordermap;
-extern crate owning_ref;
-extern crate core;
-extern crate alloc;
-extern crate serde;
-extern crate num_traits;
-#[macro_use]
-extern crate serde_derive;
-extern crate erased_serde;
-extern crate serde_json;
-extern crate idmap;
-extern crate parking_lot;
-#[macro_use]
-extern crate duckcommons_derive;
-#[cfg(feature="bincode")]
-extern crate bincode;
-#[cfg(feature="lz4")]
-extern crate lz4;
-extern crate itertools;
-extern crate fixedbitset;
-extern crate regex;
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate log;
-extern crate memchr;
-#[macro_use]
-extern crate failure;
-extern crate backtrace;
-extern crate two_sided_vec;
-extern crate slog;
-
-// We declare a fake `duckcommons` macro so the macros resolve `duckcommons` -_-
-mod duckcommons {
-    pub use super::*;
-}
 
 use std::hint;
 use std::fmt::{Debug, Display};
@@ -104,8 +64,8 @@ pub use self::collect::{
 };
 #[deprecated(note = "Please import directly from `two_sided_vec`")]
 pub use two_sided_vec::TwoSidedVec;
-pub use logging::{SerializeValue, IterValue};
-pub use math::counter::{IdCounter, IdCounted};
+pub use self::logging::{SerializeValue, IterValue};
+pub use crate::math::counter::{IdCounter, IdCounted};
 
 #[inline]
 pub fn cast_display<T>(value: &T) -> Option<&Display> {

@@ -1,6 +1,7 @@
 use std::fmt::{self, Debug, Formatter};
 
 use serde::{Serialize, Serializer};
+use serde_derive::*;
 
 
 /// A `slog::Value` value which serializes an iterator as a serde sequence.

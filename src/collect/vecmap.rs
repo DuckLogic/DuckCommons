@@ -6,6 +6,7 @@ use super::insertion_sort_by;
 
 use itertools::{EitherOrBoth, PeekingNext};
 use itertools::EitherOrBoth::*;
+use serde_derive::*;
 
 /// The threshold below which we prefer a linear search instead of a binary search.
 ///
@@ -37,7 +38,7 @@ impl<K: Ord, V> VecMap<K, V> {
     pub fn from_vector(mut target: Vec<(K, V)>, allow_duplicates: bool) -> Self {
         target.sort_by(|&(ref first_key, _), &(ref second_key, _)| first_key.cmp(second_key));
         if !allow_duplicates {
-            if let Some(((_, &(ref key, ref first)), (_, &(_, ref second)))) = ::collect::find_duplicates_by(&target, |&(ref first_key, _), &(ref second_key, _)| first_key == second_key) {
+            if let Some(((_, &(ref key, ref first)), (_, &(_, ref second)))) = crate::collect::find_duplicates_by(&target, |&(ref first_key, _), &(ref second_key, _)| first_key == second_key) {
                 panic!(
                     "Duplicate entries for {:?}: {:?} and {:?}",
                     maybe_debug!(key), maybe_debug!(first), maybe_debug!(second)

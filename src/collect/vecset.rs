@@ -1,6 +1,8 @@
 use std::{mem, iter};
 use std::fmt::{self, Formatter, Debug};
 
+use serde_derive::*;
+
 use super::VecMap;
 
 /// A set backed by a vector of sorted elements.
