@@ -15,8 +15,8 @@ use self::proc_macro::TokenStream as StdTokenStream;
 use proc_macro2::{TokenStream, Span};
 use syn::{
     DeriveInput, Data, Lit, Attribute, Path, Type, PathArguments, AngleBracketedGenericArguments,
-    Field, Ident, Fields, Meta, NestedMeta, DataEnum, DataStruct, GenericArgument,
-    MetaList, MetaNameValue, TypePath, Expr, Token, bracketed,
+    Field, Ident, Fields, Meta, NestedMeta, DataStruct, GenericArgument,
+    MetaList, MetaNameValue, TypePath, Expr, Token, bracketed, DataEnum,
 };
 use lazy_static::lazy_static;
 use quote::{quote, ToTokens, TokenStreamExt};
@@ -325,7 +325,68 @@ impl DisplayString {
     }
 }
 
-#[proc_macro_derive(SimpleParseError, attributes(parse_error, inside_crate))]
+#[proc_macro_derive(SimpleParseErrorKind, attributes(parse_error, inside_crate))]
+pub fn simple_parse_error_kind(input: StdTokenStream) -> StdTokenStream {
+    let start = Instant::now();
+    let ast = syn::parse(input).unwrap();
+    let tokens = simple_parse_error_kind_impl(&ast);
+    debug_derive(start.elapsed(), "SimpleParseErrorKind", &ast.ident, &tokens);
+    tokens.into()
+}
+
+fn simple_parse_error_kind_impl(ast: &DeriveInput) -> TokenStream {
+    let crate_name = crate_name(ast);
+    let error_kind_name = &ast.ident;
+    let error_kind_name_str = error_kind_name.to_string();
+    assert!(error_kind_name_str.ends_with("Kind"), "Invalid error kind name {:?}", error_kind_name);
+    let error_name_str = &error_kind_name_str[..(error_kind_name_str.len() - "Kind".len())];
+    let error_name = Ident::new(error_name_str, Span::call_site());
+    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
+    match ast.data {
+        Data::Enum(DataEnum { ref variants, .. }) => {
+            let mut from_implementations = Vec::new();
+            for variant in variants {
+                let name = &variant.ident;
+                let cause = find_field(variant.fields.iter(), "cause")
+                    .map(|field| &field.ty);
+                if let Some(cause) = cause {
+                    if variant.fields.iter().len() == 1 {
+                        from_implementations.push(quote! {
+                            impl  #impl_generics #crate_name::parse::FromParseError<#cause> for #error_name #ty_generics #where_clause {
+                                #[inline]
+                                fn from_cause(location: #crate_name::parse::Location, cause: #cause) -> Self {
+                                    use #crate_name::parse::SimpleParseError;
+                                    #error_name::new(location, #error_kind_name::#name { cause })
+                                }
+                            }
+                        })
+                    }
+                }
+            }
+            quote! {
+                impl #impl_generics #crate_name::parse::SimpleParseErrorKind
+                    for #error_kind_name #ty_generics #where_clause {}
+                #(#from_implementations)*
+            }
+        },
+        Data::Struct(DataStruct { fields: ref fields @ Fields::Unnamed(_) , .. }) => {
+            quote! {
+                impl #impl_generics #crate_name::parse::SimpleParseErrorKind
+                for #error_kind_name #ty_generics #where_clause {}
+            }
+        }
+        Data::Struct(DataStruct { fields: ref fields @ Fields::Named(_), .. }) => {
+            quote! {
+                impl #impl_generics #crate_name::parse::SimpleParseErrorKind
+                for #error_kind_name #ty_generics #where_clause {}
+            }
+        },
+        Data::Struct(DataStruct { fields: Fields::Unit, .. }) => unimplemented!("Unit structs"),
+        Data::Union(_) => unimplemented!("Unions")
+    }
+}
+
+#[proc_macro_derive(SimpleParseError, attributes(inside_crate))]
 pub fn simple_parse_error(input: StdTokenStream) -> StdTokenStream {
     let start = Instant::now();
     let ast = syn::parse(input).unwrap();
@@ -333,131 +394,78 @@ pub fn simple_parse_error(input: StdTokenStream) -> StdTokenStream {
     debug_derive(start.elapsed(), "SimpleParseError", &ast.ident, &tokens);
     tokens.into()
 }
+
 fn simple_parse_error_impl(ast: &DeriveInput) -> TokenStream {
+    const ACTUAL_IMPL_STRUCT: &str = "SimpleParseErrorImpl";
     let crate_name = crate_name(ast);
     let error_name = &ast.ident;
+    let error_kind_name_str = error_name.to_string() + "Kind";
+    let error_kind_name = Ident::new(&error_kind_name_str, Span::call_site());
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
-    match ast.data {
-        Data::Enum(DataEnum { ref variants, .. }) => {
-            let mut cause_cases = Vec::new();
-            let mut location_mut_cases = Vec::new();
-            let mut location_cases = Vec::new();
-            let mut from_implementations = Vec::new();
-            for variant in variants {
-                let name = &variant.ident;
-                let cause = find_field(variant.fields.iter(), "cause")
-                    .map(|field| &field.ty);
-                let location_type = find_field(variant.fields.iter(), "location")
-                    .map(|field| &field.ty)
-                    .unwrap_or_else(|| panic!("{}::{} must have a location field!", error_name, name));
-                let optional_location = match BasicType::determine(location_type) {
-                    Some(BasicType::NamedType(ref name)) if name == "Location" => false,
-                    Some(BasicType::Option(box BasicType::NamedType(ref name))) if name == "Location" => true,
-                    _ => panic!("location field for {}::{} must be a Location or Option<Location>")
-                };
-                if cause.is_some() {
-                    cause_cases.push(quote!(#error_name::#name { ref cause, .. } => #crate_name::parse::_cast_parse_error(cause)));
-                } else {
-                    cause_cases.push(quote!(#error_name::#name { .. } => None));
-                }
-                if let Some(cause) = cause {
-                    if variant.fields.iter().len() == 2 {
-                        from_implementations.push(quote! {
-                            impl  #impl_generics #crate_name::parse::FromParseError<#cause> for #error_name #ty_generics #where_clause {
-                                #[inline]
-                                fn from_cause(location: Location, cause: #cause) -> Self {
-                                    #error_name::#name { location, cause }
-                                }
-                            }
-                        })
-                    }
-                }
-                if !optional_location {
-                    location_mut_cases.push(quote!(#error_name::#name { ref mut location, .. } => location));
-                } else {
-                    location_mut_cases.push(quote! {
-                        #error_name::#name { location: Some(ref mut location), .. } => location,
-                        #error_name::#name { location: None, .. } => #crate_name::parse::_missing_index(self)
-                    });
-                }
-                if !optional_location {
-                    location_cases.push(quote!(#error_name::#name { location, .. } => location  ));
-                } else {
-                    location_cases.push(quote! {
-                        #error_name::#name { location: Some(location), .. } => location,
-                        #error_name::#name { location: None, .. } => #crate_name::parse::_missing_index(self)
-                    })
-                }
-            }
-            quote! {
-                impl #impl_generics #crate_name::parse::SimpleParseError for #error_name #ty_generics #where_clause {
+    if let Data::Struct(DataStruct { fields: ref fields @ Fields::Unnamed(_), .. }) = ast.data {
+        if fields.iter().count() == 1 {
+            return quote! {
+                impl #impl_generics #crate_name::parse::SimpleParseError
+                    for #error_name #ty_generics #where_clause {
+                    type Kind = #error_kind_name #ty_generics;
                     #[inline]
-                    fn location(&self) -> #crate_name::parse::Location {
-                        match *self {
-                            #(#location_cases),*
-                        }
+                    fn new(location: Location, kind: Self::Kind) -> Self {
+                        #error_name(#crate_name::parse::SimpleParseErrorImpl::new(location, kind))
                     }
                     #[inline]
-                    fn location_mut(&mut self) -> &mut #crate_name::parse::Location {
-                        match *self {
-                            #(#location_mut_cases),*
-                        }
+                    fn kind(&self) -> &Self::Kind {
+                        self.0.kind()
                     }
                     #[inline]
-                    fn parse_cause(&self) -> Option<&#crate_name::parse::SimpleParseError> {
-                        match *self {
-                            #(#cause_cases),*
-                        }
+                    fn into_kind(self) -> Self::Kind {
+                        self.0.into_kind()
                     }
-                }
-                #(#from_implementations)*
-            }
-        },
-        Data::Struct(DataStruct { fields: ref fields @ Fields::Unnamed(_) , .. }) => {
-            assert_eq!(fields.iter().len(), 1, "Can only derive SimpleParseError for newtype tuple structs!");
-            let delegate_type = fields.iter().nth(0).unwrap();
-            quote! {
-                impl #impl_generics #crate_name::parse::SimpleParseError for #error_name #ty_generics #where_clause {
                     #[inline]
-                    fn location(&self) -> #crate_name:parse::Location {
+                    fn index(&self) -> Option<usize> {
+                        self.0.index()
+                    }
+                    #[inline]
+                    fn location(&self) -> Location {
                         self.0.location()
                     }
                     #[inline]
-                    fn location_mut(&self) -> &mut #crate_name:parse::Location {
+                    fn location_mut(&mut self) -> &mut Location {
                         self.0.location_mut()
                     }
+                }
+                impl #impl_generics ::std::fmt::Display
+                    for #error_name #ty_generics #where_clause {
                     #[inline]
-                    fn parse_cause(&self) -> Option<&#crate_name::parse::SimpleParseError> {
-                        self.0.parse_cause()
+                    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+                        ::std::fmt::Display::fmt(&self.0, f)
                     }
                 }
-            }
-        },
-        Data::Struct(DataStruct { fields: ref fields @ Fields::Named(_), .. }) => {
-            let cause = find_field(fields, "cause")
-                .map(|field| &field.ty);
-            let give_cause = if cause.is_some() { quote! { Some(&self.cause) } } else { quote!(None) };
-            quote! {
-                impl #impl_generics #crate_name::parse::SimpleParseError for #error_name #ty_generics #where_clause {
+                impl #impl_generics ::std::fmt::Debug
+                    for #error_name #ty_generics #where_clause {
                     #[inline]
-                    fn location(&self) -> #crate_name:parse::Location {
-                        self.location
-                    }
-                    #[inline]
-                    fn location_mut(&mut self) -> &mut #crate_name:parse::Location {
-                        &mut self.location
-                    }
-                    #[inline]
-                    fn parse_cause(&self) -> Option<&#crate_name::parse::SimpleParseError> {
-                        #give_cause
+                    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+                        ::std::fmt::Debug::fmt(&self.0, f)
                     }
                 }
-            }
-        },
-        Data::Struct(DataStruct { fields: Fields::Unit, .. }) => unimplemented!("Unit structs"),
-        Data::Union(_) => unimplemented!("Unions")
+                impl #impl_generics ::failure::Fail
+                    for #error_name #ty_generics #where_clause {
+                    #[inline]
+                    fn cause(&self) -> Option<&::failure::Fail> {
+                        ::failure::Fail::cause(&self.0)
+                    }
+
+                    #[inline]
+                    fn backtrace(&self) -> Option<&::failure::Backtrace> {
+                        ::failure::Fail::backtrace(&self.0)
+                    }
+                }
+            };
+        }
     }
+    panic!("Can only derive SimpleParseError for newtype tuple structs!")
 }
+
+
 fn crate_name(ast: &DeriveInput) -> TokenStream {
     let inside_crate = ast.attrs.iter().any(|a| match a.interpret_meta() {
         Some(Meta::Word(ref word)) if word.to_string() == "inside_crate" => true,

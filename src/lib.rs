@@ -16,9 +16,10 @@
     drain_filter, // Better alternative to retain
     exhaustive_patterns, // Needed to match exhaustively on the never type
     align_offset, // Needed to compute alignment for use with SIMD
-    proc_macro_non_items, // Needed for strip_expr_nesting
+    proc_macro_hygiene, // Needed for strip_expr_nesting
     exact_size_is_empty, // Why isn't this already stable?
     ptr_offset_from, // Helps make pointer logic cleaner
+    associated_type_defaults, // Avoids boilerplate in SimpleParseErrorKind
 )]
 #![cfg_attr(feature="cargo-clippy", allow(
     type_complexity, // Sometimes I just like complex types ^_^

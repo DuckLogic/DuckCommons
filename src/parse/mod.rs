@@ -14,7 +14,7 @@ use std::cell::Cell;
 
 use smallvec::SmallVec;
 use regex::Regex;
-use failure::Fail;
+use failure::{Fail, Backtrace};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use duckcommons_derive::*;
@@ -291,7 +291,8 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
     ///
     /// Exactly equivalent to invoking `stream.unexpected().unwrap_err()`
     #[inline]
-    pub fn unexpected_err(&self) -> T::Err where T::Err: UnexpectedParseError<T> {
+    pub fn unexpected_err(&self) -> T::Err
+        where <T::Err as SimpleParseError>::Kind: UnexpectedParseErrorKind<T> {
         let Err(error) = self.unexpected();
         error
     }
@@ -299,21 +300,23 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
     /// as if by invoking `unexpected(stream.current_location(), None, stream.peek())`
     /// However, if it's the end of stream, it returns an unexpected end error instead.
     #[cold]
-    pub fn unexpected(&self) -> Result<!, T::Err> where T::Err: UnexpectedParseError<T> {
+    pub fn unexpected(&self) -> Result<!, T::Err>
+        where <T::Err as SimpleParseError>::Kind: UnexpectedParseErrorKind<T> {
         self.unexpected_ahead(0)
     }
     /// Indicates that the current token is unexpected,
     /// as if by invoking `unexpected(stream.current_location() + ahead, None, stream.peek())`
     /// However, if it's the end of stream, it returns an unexpected end error instead.
     #[cold]
-    pub fn unexpected_ahead(&self, ahead: usize) -> Result<!, T::Err> where T::Err: UnexpectedParseError<T> {
+    pub fn unexpected_ahead(&self, ahead: usize) -> Result<!, T::Err>
+        where <T::Err as SimpleParseError>::Kind: UnexpectedParseErrorKind<T> {
         self.unexpected_at(self.token_index + ahead)
     }
     /// Indicates that the current token is unexpected,
     /// and we expected one of the specified values to occur instead.
     #[cold]
     pub fn expected_any<U>(&self, expected: &[U]) -> Result<!, T::Err>
-        where T::Err: UnexpectedParseError<T>, U: Borrow<T> {
+        where <T::Err as SimpleParseError>::Kind: UnexpectedParseErrorKind<T>, U: Borrow<T> {
         let expected = expected.iter()
             .map(Borrow::borrow)
             .cloned()
@@ -324,22 +327,22 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
                 "Actual token {:?} was claimed unexpected, but listed in claimed expected values {:?}",
                 actual, expected
             );
-            self.maybe_panic(Err(T::Err::unexpected(
-                location, expected, actual.clone()
-            )))
+            self.maybe_panic(Err(<T::Err as SimpleParseError>::Kind::unexpected(
+                expected, actual.clone()
+            ).into_err(location)))
         } else {
             self.unexpected()?
         }
     }
     #[inline]
     pub fn expect<U>(&mut self, expected: U) -> Result<(), T::Err>
-        where T::Err: UnexpectedParseError<T>, U: Borrow<T> {
+        where <T::Err as SimpleParseError>::Kind: UnexpectedParseErrorKind<T>, U: Borrow<T> {
         self.expect_any(&[expected])?;
         Ok(())
     }
     #[inline]
     pub fn expect_any<U>(&mut self, expected: &[U]) -> Result<usize, T::Err>
-        where T::Err: UnexpectedParseError<T>, U: Borrow<T> {
+        where <T::Err as SimpleParseError>::Kind: UnexpectedParseErrorKind<T>, U: Borrow<T> {
         if let Some(next) = self.peek() {
             for (index, possibility) in expected.iter()
                 .map(U::borrow).enumerate() {
@@ -353,7 +356,7 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
     }
     #[inline]
     pub fn expect_identifier(&mut self) -> Result<&'a Ident, T::Err>
-        where T::Err: UnexpectedParseError<T> {
+        where <T::Err as SimpleParseError>::Kind: UnexpectedParseErrorKind<T> {
         if let Some(ident) = self.peek().and_then(|token| token.identifier()) {
             self.advance(1);
             Ok(ident)
@@ -381,12 +384,12 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
     /// Indicates that the current token is unexpected,
     /// as if by invoking `unexpected(self.index_at(token), None, stream.peek())`
     #[cold]
-    pub fn unexpected_at<E: UnexpectedParseError<T>>(&self, token: usize) -> Result<!, E>
-        where T::Err: UnexpectedParseError<T> {
+    pub fn unexpected_at<E: SimpleParseError>(&self, token: usize) -> Result<!, E>
+        where E::Kind: UnexpectedParseErrorKind<T> {
         self.maybe_panic(if let Some(&(location, ref token)) = self.tokens.get(token) {
-            Err(E::unexpected(location, vec![], token.clone()))
+            Err(E::Kind::unexpected(vec![], token.clone()).into_err(location))
         } else {
-            Err(E::unexpected_end(self.tokens.last().unwrap().0))
+            Err(E::Kind::unexpected_end().into_err(self.tokens.last().unwrap().0))
         })
     }
     #[inline]
@@ -407,8 +410,8 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
         &'b mut self,
         delimiter: S, start: S, end: S,
         mut parser: F
-    ) -> Result<Vec<U>, T::Err> where S: Into<T>, T::Err: UnmatchedTokenError<T>,
-                                      T::Err: UnexpectedParseError<T>, 'a: 'b,
+    ) -> Result<Vec<U>, T::Err> where S: Into<T>, <T::Err as SimpleParseError>::Kind: UnmatchedTokenErrorKind<T>,
+                                      <T::Err as SimpleParseError>::Kind: UnexpectedParseErrorKind<T>, 'a: 'b,
                                       F: FnMut(&mut TokenStream<T>) -> Result<U, T::Err> {
         trace!(
             "parse_delimiter({:?}, {:?}, {:?}) at {:?}",
@@ -463,7 +466,7 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
     /// Find the ending of the specified start token, allowing arbitrary nesting.
     #[inline]
     pub fn find_ending(&self, start: T, end: T) -> Result<usize, T::Err>
-        where T::Err: UnmatchedTokenError<T> {
+        where <T::Err as SimpleParseError>::Kind: UnmatchedTokenErrorKind<T> {
         debug_assert_ne!(start, end);
         assert_eq!(self.peek(), Some(&start));
         let index = self.token_index();
@@ -473,15 +476,15 @@ impl<'a, T: Token + 'a> TokenStream<'a, T> {
                 level += 1;
             } else if result == &end {
                 match level {
-                    0 => return self.maybe_panic(Err(T::Err::unmatched(
-                        self.location_of(index + offset), end
-                    ))),
+                    0 => return self.maybe_panic(Err(<T::Err as SimpleParseError>::Kind::unmatched(
+                        end
+                    ).into_err(self.location_of(index + offset)))),
                     1 => return Ok(index + offset),
                     _ => level -= 1
                 }
             }
         }
-        self.maybe_panic(Err(T::Err::unmatched(self.location_of(index), start)))
+        self.maybe_panic(Err(<T::Err as SimpleParseError>::Kind::unmatched(start).into_err(self.location_of(index))))
     }
     #[inline]
     pub fn slice(&self, start: usize, end: usize) -> Self {
@@ -540,8 +543,8 @@ impl<'a, T: Token + 'a> Iterator for PeekingIter<'a, T> {
     }
 }
 /// Indicates that a type has a default variant that can be created with just an index
-pub trait DefaultParseError: SimpleParseError {
-    fn default_error(location: Location) -> Self;
+pub trait DefaultParseErrorKind: SimpleParseErrorKind {
+    fn default_error() -> Self;
 }
 /// Indicates that a `SimpleParseError` can be created directly from a cause and index
 pub trait FromParseError<T>: SimpleParseError {
@@ -549,25 +552,25 @@ pub trait FromParseError<T>: SimpleParseError {
 }
 impl<T: SimpleParseError> FromParseError<T> for T {
     #[inline]
-    fn from_cause(location: Location, mut cause: T) -> Self {
-        if let (&mut Location::Simple(ref mut cause_location),
-            Location::Simple(location)) = (cause.location_mut(), location) {
-            *cause_location += location;
-        }
+    fn from_cause(location: Location, mut cause: T) -> T {
+        cause.location_mut().add_inplace(location);
         cause
     }
 }
+pub trait DefaultParseError: SimpleParseError {
+    fn default_error(location: Location) -> Self;
+}
 /// Indicates that a `SimpleParseError` can be created from an unexpected item
-pub trait UnexpectedParseError<T>: UnexpectedEndParseError + SimpleParseError {
-    fn unexpected(location: Location, expected: Vec<T>, actual: T) -> Self;
+pub trait UnexpectedParseErrorKind<T>: UnexpectedEndParseErrorKind + SimpleParseErrorKind {
+    fn unexpected(expected: Vec<T>, actual: T) -> Self;
 }
-/// Indicates that a `SimpleParseError` can be created from an unmatched start or end token
-pub trait UnmatchedTokenError<T>: UnexpectedParseError<T> {
-    fn unmatched(location: Location, start: T) -> Self;
+/// Indicates that a `SimpleParseErrorKind` can be created from an unmatched start or end token
+pub trait UnmatchedTokenErrorKind<T>: UnexpectedParseErrorKind<T> {
+    fn unmatched(start: T) -> Self;
 }
-/// Indicates that a `SimpleParseError` can be created when an unexpected EOF is encountered
-pub trait UnexpectedEndParseError: SimpleParseError {
-    fn unexpected_end(location: Location) -> Self;
+/// Indicates that a `SimpleParseErrorKind` can be created when an unexpected EOF is encountered
+pub trait UnexpectedEndParseErrorKind: SimpleParseErrorKind {
+    fn unexpected_end() -> Self;
 }
 
 /// A simple parser for text
@@ -726,7 +729,7 @@ impl<'a> SimpleParser<'a> {
     /// However, the function may decide panic if the next token isn't actually the start token.
     #[inline]
     pub fn take_delimited<E>(&mut self, start: u8, end: u8) -> Result<&str, E>
-        where E: UnmatchedTokenError<char> {
+        where E: SimpleParseError, E::Kind: UnmatchedTokenErrorKind<char> {
         assert_ne!(start, end);
         assert_eq!(self.pop(), start);
         let start_index = self.current_index();
@@ -740,10 +743,9 @@ impl<'a> SimpleParser<'a> {
                 level += 1;
             } else if result == end {
                 match level {
-                    0 => return Err(E::unmatched(
-                        self.cache().determine_location(start_index + offset),
+                    0 => return Err(E::Kind::unmatched(
                         end as char
-                    )),
+                    ).into_err(self.cache().determine_location(start_index + offset))),
                     1 => {
                         let (result, newly_remaining) = self.remaining.split_at(offset);
                         self.remaining = newly_remaining;
@@ -755,7 +757,7 @@ impl<'a> SimpleParser<'a> {
                 unreachable!(result)
             }
         }
-        Err(E::unmatched(self.cache().determine_location(start_index), start as char))
+        Err(E::Kind::unmatched(start as char).into_err(self.cache().determine_location(start_index)))
     }
     /// Take all the input until the given predicate matches an ASCII character,
     /// returning None if the predicate never matches.
@@ -826,14 +828,17 @@ impl<'a> SimpleParser<'a> {
                 self.remaining = parser.remaining;
                 Ok(value)
             }
-            Err(cause) => Err(E::from_cause(self.current_location(), cause))
+            Err(cause) => {
+                Err(E::from_cause(self.current_location(), cause))
+            }
         }
     }
     /// Create an error of the specified type from the current index, equivalent to `T::from(self.current_index())`.
     /// Very useful if you have some sort of default 'syntax error' type, which you want to create easily.
     #[inline]
-    pub fn error<E: DefaultParseError>(&self) -> Result<!, E> {
-        Err(E::default_error(self.current_location()))
+    pub fn error<E: SimpleParseError>(&self) -> Result<!, E>
+        where E::Kind: DefaultParseErrorKind {
+        Err(E::Kind::default_error().into_err(self.current_location()))
     }
     #[inline]
     pub fn current_index(&self) -> usize {
@@ -1034,6 +1039,14 @@ impl Location {
     pub fn unwrap_simple(&self) -> SimpleLocation {
         self.simple().unwrap_or_else(|| panic!("Invalid location: {:?}", self))
     }
+    #[inline]
+    pub fn add_inplace(&mut self, offset: Location) {
+        // NOTE: We can only add simple locations
+        if let (&mut Location::Simple(ref mut cause_location),
+            Location::Simple(location)) = (self, offset) {
+            *cause_location += location;
+        }
+    }
 }
 impl PartialOrd for Location {
     #[inline]
@@ -1070,85 +1083,142 @@ pub trait SimpleParse<'a>: Sized {
     fn parse_str(text: &'a str) -> Result<Self, StringParseError<Self::Err>> {
         let mut parser = SimpleParser::from(text);
         let value = parser.try_parse::<Self>()
-            .map_err(|cause| StringParseError::InvalidValue {
-                location: cause.location(),
+            .map_err(|cause| StringParseErrorKind::InvalidValue {
                 cause
-            })?;
+            }.into_err(parser.current_location()))?;
         if !parser.is_empty() {
-            Err(StringParseError::UnexpectedTrailing {
-                location: parser.current_location()
-            })
+            Err(StringParseErrorKind::UnexpectedTrailing.into_err(parser.current_location()))
         } else {
             Ok(value)
         }
     }
 }
-#[derive(Fail, SimpleParseError, Debug)]
+#[derive(SimpleParseError)]
 #[inside_crate]
-pub enum StringParseError<E: SimpleParseError> {
+pub struct StringParseError<E: SimpleParseError>(SimpleParseErrorImpl<StringParseErrorKind<E>>);
+#[derive(SimpleParseErrorKind, Fail, Debug)]
+#[inside_crate]
+pub enum StringParseErrorKind<E: SimpleParseError> {
     #[fail(display = "Unexpected trailing data")]
-    UnexpectedTrailing {
-        location: Location
-    },
+    UnexpectedTrailing,
     #[fail(display = "{}", cause)]
     InvalidValue {
-        location: Location,
         cause: E
     }
 }
 /// Support method to panic on a missing index
 #[doc(hidden)] #[cold] #[inline(never)]
-pub fn _missing_index<T: SimpleParseError>(value: &T) -> ! {
+pub fn _missing_index<K: SimpleParseErrorKind>(value: &SimpleParseErrorImpl<K>) -> ! {
     panic!("Missing index for {:?}", value)
 }
-/// Magic method to 'cast' an `Error` type into a `SimpleParseError` using specialization
-///
-/// Intended for use by the `ducklogic-derive` crate so they can check if a cause is actually a `SimpleParseError`,
-/// without having to do an isinstance check which is impossible for a procedural macro.
-#[doc(hidden)]
-#[inline]
-pub fn _cast_parse_error<T: Fail>(error: &T) -> Option<&SimpleParseError> {
-    <T as CastParseError>::cast(error)
-}
-pub trait CastParseError {
-    fn cast(&self) -> Option<&SimpleParseError>;
-}
-impl<T: Fail> CastParseError for T {
-    #[inline]
-    default fn cast(&self) -> Option<&SimpleParseError> {
-        None
-    }
-}
-impl<T: SimpleParseError> CastParseError for T {
-    #[inline]
-    fn cast(&self) -> Option<&SimpleParseError> {
-        Some(self)
-    }
-}
+
 
 /// A descriptive error message for a parse failure, which always includes the index it occurred at.
 ///
-/// The convention for the error's display is that each error shouldn't include the index or cause directly,
-/// and should instead rely on the caller to display the causes and position.
-pub trait SimpleParseError: Fail {
+/// `SimpleParseErrorImpl` is the only implementation you should ever need.
+/// The trait is just for convenience and to avoid a generic parameter
+///
+/// In addition to the underlying error type,
+/// the wrapper includes the error's location and a backtrace (where available).
+pub trait SimpleParseError: Sized + Fail {
+    type Kind: SimpleParseErrorKind;
+    fn new(location: Location, kind: Self::Kind) -> Self;
+    /// Gives the underlying 'kind' of this error
+    fn kind(&self) -> &Self::Kind;
+    fn into_kind(self) -> Self::Kind;
+    /// Return the byte-index of the error in the original text,
+    /// or `None` if we are using a user location
+    fn index(&self) -> Option<usize>;
+    fn location(&self) -> Location;
+    /// Give a mutable reference to this parser's location
+    fn location_mut(&mut self) -> &mut Location;
+}
+
+/// This is the standard wrapper
+pub struct SimpleParseErrorImpl<T: SimpleParseErrorKind> {
+    location: Location,
+    backtrace: Option<Backtrace>,
+    kind: T
+}
+impl<T: SimpleParseErrorKind> SimpleParseError for SimpleParseErrorImpl<T> {
+    type Kind = T;
+
+    #[inline]
+    fn new(location: Location, kind: T) -> Self {
+        SimpleParseErrorImpl { location, kind, backtrace: Some(Backtrace::new()) }
+    }
+
+    #[inline]
+    fn kind(&self) -> &Self::Kind {
+        &self.kind
+    }
+
+    #[inline]
+    fn into_kind(self) -> Self::Kind {
+        self.kind
+    }
+
     /// Return the byte-index of the error in the original text,
     /// or `None` if we are using a user location
     #[inline]
     fn index(&self) -> Option<usize> {
-        self.location().simple().map(|simple| simple.index)
+        self.location.simple().map(|simple| simple.index)
     }
-    fn location(&self) -> Location;
+    #[inline]
+    fn location(&self) -> Location {
+        self.location
+    }
     /// Give a mutable reference to this parser's location
-    fn location_mut(&mut self) -> &mut Location;
-    /// Return the underlying cause of this parse error, if it was caused by another `SimpleParseError`
-    ///
-    /// The cause is expected to have left its indexes untouched,
-    /// although the caller may choose to Clone the cause and modify them.
-    fn parse_cause(&self) -> Option<&SimpleParseError>;
-    /// Fully describe the error over multiple lines,
-    /// including the index where it occurred and all the underlying causes.
-    fn fully_describe(&self, _original_text: Option<&str>) -> String {
-        unimplemented!("Error descriptions")
+    #[inline]
+    fn location_mut(&mut self) -> &mut Location {
+        &mut self.location
+    }
+}
+impl<T: SimpleParseErrorKind> Debug for SimpleParseErrorImpl<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        /*
+         * NOTE: Sometimes a failure backtrace can be Some but still be empty.
+         * There is currently no way to detect this until the `is_none` method is exposed.
+         * For now we'll just pretend like the backtrace is nver empty
+         * in order to try and emulate a `failure::Error`
+         */
+        let backtrace = self.backtrace();
+        match backtrace {
+            Some(backtrace) => {
+                write!(f, "{}: {:?}\n\n{:?}", self.location, &self.kind, backtrace)
+            },
+            None => write!(f, "{}: {:?}", self.location, &self.kind)
+        }
+    }
+}
+
+impl<T: SimpleParseErrorKind> Display for SimpleParseErrorImpl<T> {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        Display::fmt(&self.kind, f)
+    }
+}
+impl<T: SimpleParseErrorKind> Fail for SimpleParseErrorImpl<T> {
+    #[inline]
+    fn cause(&self) -> Option<&Fail> {
+        Fail::cause(&self.kind)
+    }
+
+    #[inline]
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.backtrace.as_ref()
+    }
+}
+/// The underlying type of the parse error, which will be wrapped by SimpleParseError.
+///
+/// The convention for the error's display is that each error kind shouldn't include
+/// the index or cause directly,
+/// and should instead rely on the caller to display the causes and location.
+pub trait SimpleParseErrorKind: Sized + Fail {
+    #[inline]
+    fn into_err<E>(self, location: Location) -> E
+        where E: SimpleParseError<Kind=Self> {
+        E::new(location, self)
     }
 }
 #[derive(Debug)]
@@ -1187,8 +1257,8 @@ impl<'a> SimpleParse<'a> for NumericLiteral {
                 floating.push_str(integral);
                 if let Some(tail) = parser.take_pattern(&*FLOAT_TAIL_PATTERN) {
                     floating.push_str(tail);
-                    let value = floating.parse::<f64>().map_err(|_| NumericLiteralParseError::InvalidFloat {
-                        location: Location::zero()
+                    let value = floating.parse::<f64>().map_err(|_| {
+                        NumericLiteralParseErrorKind::InvalidFloat.into_err(Location::zero())
                     })?;
                     Ok(NumericLiteral::Floating(value))
                 } else {
@@ -1198,13 +1268,13 @@ impl<'a> SimpleParse<'a> for NumericLiteral {
             _ => {
                 if !integral.is_empty() {
                     // Fast path, when it's just an integer so we can parse without a regex or buffer
-                    let raw = integral.parse::<i64>().map_err(|cause| NumericLiteralParseError::InvalidInteger {
-                        location: parser.current_location(),
-                        cause
+                    let raw = integral.parse::<i64>().map_err(|cause| {
+                        NumericLiteralParseErrorKind::InvalidInteger { cause }
+                            .into_err(parser.current_location())
                     })?;
                     Ok(NumericLiteral::Integer(if positive { raw } else { -raw }))
                 } else {
-                    Err(NumericLiteralParseError::InvalidNumber { location: Location::zero() })
+                    Err(NumericLiteralParseErrorKind::InvalidNumber.into_err(Location::zero()))
                 }
             }
         }
@@ -1222,23 +1292,20 @@ impl Display for NumericLiteral {
         }
     }
 }
-#[derive(Fail, SimpleParseError, Debug, Clone)]
-#[inside_crate]
-pub enum NumericLiteralParseError {
+pub type NumericLiteralParseError = SimpleParseErrorImpl<NumericLiteralParseErrorKind>;
+#[derive(Fail, Debug, Clone)]
+pub enum NumericLiteralParseErrorKind {
     #[fail(display = "Invalid number")]
-    InvalidNumber {
-        location: Location,
-    },
+    InvalidNumber,
     #[fail(display = "Invalid integer, {}", cause)]
     InvalidInteger {
-        location: Location,
         #[cause] cause: ParseIntError
     },
     #[fail(display = "Invalid float")]
-    InvalidFloat {
-        location: Location,
-    }
+    InvalidFloat,
 }
+impl SimpleParseErrorKind for NumericLiteralParseErrorKind {}
+
 /// A string literal that has been quoted and escaped
 #[derive(Clone, Debug)]
 pub struct StringLiteral(pub String);
@@ -1257,9 +1324,8 @@ impl<'a> SimpleParse<'a> for StringLiteral {
         if parser.peek() == Some(b'"') {
             parser.pop();
         } else {
-            return Err(StringLiteralParseError::ExpectedStartQuote {
-                location: Location::zero()
-            })
+            return Err(StringLiteralParseErrorKind::ExpectedStartQuote
+                           .into_err(Location::zero()))
         }
         // NOTE: zero-copy is certainly possible, but seems like premature optimization at this point
         let mut result = String::new();
@@ -1277,13 +1343,11 @@ impl<'a> SimpleParse<'a> for StringLiteral {
                             Some(b'\'') =>'\'',
                             Some(b'"') => '"',
                             Some(b'\\') => '\\',
-                            Some(b'u') => return Err(StringLiteralParseError::UnsupportedEscape {
-                                kind: 'u',
-                                location: parser.current_location()
-                            }),
-                            _ => return Err(StringLiteralParseError::InvalidEscape {
-                                location: parser.current_location()
-                            })
+                            Some(b'u') => return Err(StringLiteralParseErrorKind::UnsupportedEscape {
+                                kind: 'u'
+                            }.into_err(parser.current_location())),
+                            _ => return Err(StringLiteralParseErrorKind::InvalidEscape
+                                                .into_err(parser.current_location()))
                         };
                         result.push(escaped);
                         parser.pop();
@@ -1297,34 +1361,25 @@ impl<'a> SimpleParse<'a> for StringLiteral {
                 break 'scanLoop;
             }
         }
-        Err(StringLiteralParseError::MissingEndQuote {
-            location: parser.current_location()
-        })
+        Err(StringLiteralParseErrorKind::MissingEndQuote.into_err(parser.current_location()))
     }
 }
-#[derive(Debug, Clone, Copy, SimpleParseError, Fail)]
-#[inside_crate]
-pub enum StringLiteralParseError {
+pub type StringLiteralParseError = SimpleParseErrorImpl<StringLiteralParseErrorKind>;
+#[derive(Debug, Clone, Copy, Fail)]
+pub enum StringLiteralParseErrorKind {
     #[fail(display = "Invalid string, expected start quote")]
-    ExpectedStartQuote {
-        location: Location,
-    },
+    ExpectedStartQuote,
     #[fail(display = "Invalid string, missing end quote")]
-    MissingEndQuote {
-        location: Location,
-    },
+    MissingEndQuote,
     #[fail(display = "Invalid string, invalid escape sequence")]
-    InvalidEscape {
-        location: Location,
-    },
+    InvalidEscape,
     /// Indicates that an escape is valid but unsupported
     #[fail(display = "Invalid string, unsupported escape '\\{}'", kind)]
     UnsupportedEscape {
-        location: Location,
         kind: char
     }
 }
-
+impl SimpleParseErrorKind for StringLiteralParseErrorKind {}
 
 pub struct Hexadecimal(pub SmallVec<[u8; 16]>);
 impl<'a> SimpleParse<'a> for Hexadecimal {
@@ -1340,28 +1395,27 @@ impl FromStr for Hexadecimal {
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         if text.is_empty() {
-            return Err(HexadecimalParseError::EmptyHex {
-                location: Location::zero()
-            })
+            return Err(HexadecimalParseErrorKind::EmptyHex.into_err(Location::zero()));
         }
         let mut buffer = SmallVec::new();
         let mut parser = SimpleParser::from(text);
         while !parser.is_empty() {
-            let first = parser.peek().and_then(parse_hex_char).ok_or_else(|| HexadecimalParseError::InvalidChar {
-                location: parser.current_location(),
-                value: parser.peek_char()
+            let first = parser.peek().and_then(parse_hex_char).ok_or_else(|| {
+                HexadecimalParseErrorKind::InvalidChar {
+                    value: parser.peek_char()
+                }.into_err(parser.current_location())
             })?;
             parser.pop();
             let second = if !parser.is_empty() {
-                parser.peek().and_then(parse_hex_char).ok_or_else(|| HexadecimalParseError::InvalidChar {
-                    location: parser.current_location(),
-                    value: parser.peek_char()
+                parser.peek().and_then(parse_hex_char).ok_or_else(|| {
+                    HexadecimalParseErrorKind::InvalidChar {
+                        value: parser.peek_char()
+                    }.into_err(parser.current_location())
                 })?
             } else {
-                return Err(HexadecimalParseError::InvalidLength {
-                    location: Location::zero(),
+                return Err(HexadecimalParseErrorKind::InvalidLength {
                     amount: buffer.len() + 1
-                })
+                }.into_err(Location::zero()))
             };
             buffer.push(first | (second << 4));
         }
@@ -1377,25 +1431,21 @@ fn parse_hex_char(b: u8) -> Option<u8> {
         _ => None
     }
 }
-#[derive(Debug, Clone, SimpleParseError, Fail)]
-#[inside_crate]
-pub enum HexadecimalParseError {
+pub type HexadecimalParseError = SimpleParseErrorImpl<HexadecimalParseErrorKind>;
+#[derive(Debug, Clone, Fail)]
+pub enum HexadecimalParseErrorKind {
     #[fail(display = "Expected valid hexadecimal")]
-    EmptyHex {
-        location: Location,
-    },
+    EmptyHex,
     #[fail(display = "Invalid hex char, {}", value)]
     InvalidChar {
-        location: Location,
         value: char
     },
     #[fail(display = "Invalid hex length, {}", amount)]
     InvalidLength {
-        location: Location,
         amount: usize
     }
 }
-
+impl SimpleParseErrorKind for HexadecimalParseErrorKind {}
 
 #[derive(Eq, PartialEq, Hash, Clone)]
 pub struct Ident(Arc<str>);
@@ -1424,12 +1474,16 @@ impl Ident {
         let text = text.into();
         match Ident::parse_str(&text) {
             Ok(result) => Ok(result),
-            Err(StringParseError::InvalidValue { cause, .. }) => Err(cause),
-            Err(StringParseError::UnexpectedTrailing { location }) => {
-                Err(InvalidIdentError::InvalidChar {
-                    location,
-                    invalid: text[location.unwrap_simple().index..].chars().next().unwrap()
-                })
+            Err(e) => {
+                let location = e.location();
+                match e.into_kind() {
+                    StringParseErrorKind::InvalidValue { cause, .. } => Err(cause),
+                    StringParseErrorKind::UnexpectedTrailing { .. } => {
+                        Err(InvalidIdentErrorKind::InvalidChar {
+                            invalid: text[location.unwrap_simple().index..].chars().next().unwrap()
+                        }.into_err(location))
+                    }
+                }
             }
         }
     }
@@ -1487,27 +1541,25 @@ impl<'a> SimpleParse<'a> for Ident {
             result.push_str(parser.take_only_ascii(Ident::is_valid_byte));
             Ok(Ident(Arc::from(result)))
         } else {
-            Err(InvalidIdentError::InvalidChar {
-                location: parser.current_location(),
+            Err(InvalidIdentErrorKind::InvalidChar {
                 invalid: parser.peek_char()
-            })
+            }.into_err(parser.current_location()))
         }
     }
 }
 
-#[derive(Debug, Fail, SimpleParseError, Clone, Eq, PartialEq)]
-#[inside_crate]
-pub enum InvalidIdentError {
+pub type InvalidIdentError = SimpleParseErrorImpl<InvalidIdentErrorKind>;
+#[derive(Debug, Fail, Clone, Eq, PartialEq)]
+pub enum InvalidIdentErrorKind {
     #[fail(display = "Empty identifier")]
-    Empty {
-        location: Location
-    },
+    Empty,
     #[fail(display = "Invalid character: {:?}", invalid)]
     InvalidChar {
-        location: Location,
         invalid: char,
     },
 }
+impl SimpleParseErrorKind for InvalidIdentErrorKind {}
+
 
 #[cfg(test)]
 mod test {
