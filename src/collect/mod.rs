@@ -177,17 +177,17 @@ pub trait FindSingle: Sized {
     }
     fn try_single(self) -> Result<Self::Item, SingleError<Self::Item>>;
 }
-impl<I: Iterator> FindSingle for I {
+impl<I: IntoIterator> FindSingle for I {
     type Item = I::Item;
     #[inline]
     fn try_find_single<F>(self, func: F) -> Result<I::Item, SingleError<I::Item>>
         where F: FnMut(&Self::Item) -> bool {
-        self.filter(func).try_single()
+        self.into_iter().filter(func).try_single()
     }
 
     fn try_position_single<F>(self, mut func: F) -> Result<usize, SingleError<I::Item>>
         where F: FnMut(&Self::Item) -> bool {
-        let mut iter = self.enumerate()
+        let mut iter = self.into_iter().enumerate()
             .filter(|(_, ref value)| func(value));
         if let Some((index, first)) = iter.next() {
             if let Some((_, second)) = iter.next() {
@@ -203,9 +203,10 @@ impl<I: Iterator> FindSingle for I {
     }
 
     #[inline]
-    fn single(mut self) -> Option<I::Item> {
-        if let Some(first) = self.next() {
-            if let Some(_) = self.next() {
+    fn single(self) -> Option<I::Item> {
+        let mut iter = self.into_iter();
+        if let Some(first) = iter.next() {
+            if let Some(_) = iter.next() {
                 None
             } else {
                 Some(first)
@@ -216,11 +217,12 @@ impl<I: Iterator> FindSingle for I {
     }
 
     #[inline]
-    fn try_single(mut self) -> Result<I::Item, SingleError<I::Item>> {
-        if let Some(first) = self.next() {
-            if let Some(second) = self.next() {
+    fn try_single(self) -> Result<I::Item, SingleError<I::Item>> {
+        let mut iter = self.into_iter();
+        if let Some(first) = iter.next() {
+            if let Some(second) = iter.next() {
                 let mut elements = vec![first, second];
-                elements.extend(self);
+                elements.extend(iter);
                 Err(SingleError { elements })
             } else {
                 Ok(first)
