@@ -18,7 +18,7 @@ use failure::{Fail, Backtrace};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use duckcommons_derive::*;
-use log::{trace, log};
+use ::log::{trace, log};
 
 pub mod ascii;
 pub mod text;
@@ -1209,6 +1209,12 @@ impl<T: SimpleParseErrorKind> Fail for SimpleParseErrorImpl<T> {
         self.backtrace.as_ref()
     }
 }
+impl<T: SimpleParseErrorKind + PartialEq> PartialEq for SimpleParseErrorImpl<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.location == other.location && self.kind == other.kind
+    }
+}
 /// The underlying type of the parse error, which will be wrapped by SimpleParseError.
 ///
 /// The convention for the error's display is that each error kind shouldn't include
@@ -1567,10 +1573,10 @@ mod test {
     #[test]
     fn parse_ident() {
         assert_eq!(Ident::new("bob"), Ident(Arc::from("bob")));
-        assert_eq!(Ident::parse("bob ").unwrap_err(), InvalidIdentError::InvalidChar {
-            invalid: ' ',
-            location: Location::Simple(SimpleLocation::simple(3))
-        });
+        assert_eq!(Ident::parse("bob ").unwrap_err(), InvalidIdentError::new(
+            Location::Simple(SimpleLocation::simple(3)),
+            InvalidIdentErrorKind::InvalidChar { invalid: ' ', }
+        ));
         let mut parser = SimpleParser::from("bob loves food");
         assert_eq!(parser.parse::<Ident, InvalidIdentError>().unwrap(), Ident::new("bob"));
         assert_eq!(parser.pop(), b' ');
