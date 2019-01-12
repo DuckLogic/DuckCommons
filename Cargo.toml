@@ -47,8 +47,8 @@ memchr = "^1.0.1"
 fixedbitset = "^0.1.8"
 # Compile time maps
 # TODO: Use upstream version of PHF
-phf = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2018-08-23" }
-phf_macros = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2018-08-23" }
+phf = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2019-01-11" }
+phf_macros = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2019-01-11" }
 # Better concurrency primitives
 parking_lot = { version = "^0.6.3", features = ["nightly"] }
 # Generic traits for numbers
@@ -81,8 +81,8 @@ path = "derive"
 
 [patch.crates-io]
 # TODO: Use upstream version of phf
-phf = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2018-08-23" }
-phf_macros = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2018-08-23" }
-phf_shared = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2018-08-23" }
-phf_generator = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2018-08-23" }
+phf = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2019-01-11" }
+phf_macros = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2019-01-11" }
+phf_shared = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2019-01-11" }
+phf_generator = { git = "https://github.com/Techcable/rust-phf.git", branch = "update/nightly-2019-01-11" }
 
