@@ -4,7 +4,7 @@
     box_syntax, // This is much nicer than Box::new
     optin_builtin_traits, // This is much nicer than PhantomData
     specialization, // Needed for maybe_debug
-    alloc, allocator_api, // Needed for RawTwoSidedVec
+    allocator_api, // Needed for RawTwoSidedVec
     trusted_len, // Faster iterators
     core_intrinsics, // I like microoptimization and undefined behavior
     type_ascription, // Type ascription is awesome
@@ -12,10 +12,8 @@
     fn_traits, // I guess `FnMut` is also an unstable trait?
     never_type, // The never type is awesome
     pattern, // We use the pattern API for parsing
-    str_escape, // I think this is used for printing?
     drain_filter, // Better alternative to retain
     exhaustive_patterns, // Needed to match exhaustively on the never type
-    align_offset, // Needed to compute alignment for use with SIMD
     proc_macro_hygiene, // Needed for strip_expr_nesting
     exact_size_is_empty, // Why isn't this already stable?
     ptr_offset_from, // Helps make pointer logic cleaner
