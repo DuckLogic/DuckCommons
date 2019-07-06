@@ -1200,7 +1200,7 @@ impl<T: SimpleParseErrorKind> Display for SimpleParseErrorImpl<T> {
 }
 impl<T: SimpleParseErrorKind> Fail for SimpleParseErrorImpl<T> {
     #[inline]
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         Fail::cause(&self.kind)
     }
 
@@ -1431,9 +1431,9 @@ impl FromStr for Hexadecimal {
 #[inline]
 fn parse_hex_char(b: u8) -> Option<u8> {
     match b {
-        b'0'...b'9' => Some(b - b'0'),
-        b'A'...b'F' => Some((b - b'A') + 10),
-        b'a'...b'f' => Some((b - b'a') + 10),
+        b'0'..=b'9' => Some(b - b'0'),
+        b'A'..=b'F' => Some((b - b'A') + 10),
+        b'a'..=b'f' => Some((b - b'a') + 10),
         _ => None
     }
 }

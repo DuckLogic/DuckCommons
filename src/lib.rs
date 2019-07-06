@@ -23,6 +23,9 @@
     type_complexity, // Sometimes I just like complex types ^_^
     cast_lossless, // I disagree with this lint
 ))]
+#![deny(
+    bare_trait_objects, // These are unclear legacy baggage
+)]
 
 use std::hint;
 use std::fmt::{Debug, Display};
@@ -40,7 +43,7 @@ macro_rules! maybe_debug {
     ($target:ident) => (maybe_debug!(&$target));
     ($target:expr) => (maybe_debug!($target, "<unknown>"));
     ($target:expr, $fallback:expr) => ({
-        const FALLBACK: &::std::fmt::Debug = &$fallback;
+        const FALLBACK: &dyn ::std::fmt::Debug = &$fallback;
         ($crate::cast_debug($target)).unwrap_or(FALLBACK)
     });
 }
@@ -67,35 +70,35 @@ pub use self::logging::{SerializeValue, IterValue};
 pub use crate::math::counter::{IdCounter, IdCounted};
 
 #[inline]
-pub fn cast_display<T>(value: &T) -> Option<&Display> {
+pub fn cast_display<T>(value: &T) -> Option<&dyn Display> {
     <T as CastDisplay>::maybe_display(value)
 }
 
 #[inline]
-pub fn cast_debug<T>(value: &T) -> Option<&Debug> {
+pub fn cast_debug<T>(value: &T) -> Option<&dyn Debug> {
     <T as CastDebug>::maybe_debug(value)
 }
 trait CastDisplay {
-    fn maybe_display(&self) -> Option<&Display>;
+    fn maybe_display(&self) -> Option<&dyn Display>;
 }
 impl<T> CastDisplay for T {
     #[inline]
-    default fn maybe_display(&self) -> Option<&Display> {
+    default fn maybe_display(&self) -> Option<&dyn Display> {
         None
     }
 }
 impl<T: Display> CastDisplay for T {
     #[inline]
-    fn maybe_display(&self) -> Option<&Display> {
+    fn maybe_display(&self) -> Option<&dyn Display> {
         Some(self)
     }
 }
 trait CastDebug {
-    fn maybe_debug(&self) -> Option<&Debug>;
+    fn maybe_debug(&self) -> Option<&dyn Debug>;
 }
 impl<T> CastDebug for T {
     #[inline]
-    default fn maybe_debug(&self) -> Option<&Debug> {
+    default fn maybe_debug(&self) -> Option<&dyn Debug> {
         None
     }
 }
@@ -103,7 +106,7 @@ impl<T> CastDebug for T {
 
 impl<T: Debug> CastDebug for T {
     #[inline]
-    fn maybe_debug(&self) -> Option<&Debug> {
+    fn maybe_debug(&self) -> Option<&dyn Debug> {
         Some(self)
     }
 }
@@ -142,7 +145,7 @@ impl<'a> IntoOwned<String> for &'a str {
 }
 
 #[cold] #[inline(never)]
-pub fn display_panic_message(dynamic: Box<::std::any::Any + Send + 'static>) -> String {
+pub fn display_panic_message(dynamic: Box<dyn ::std::any::Any + Send + 'static>) -> String {
     match dynamic.downcast::<String>() {
         Ok(message) => *message,
         Err(dynamic) => {

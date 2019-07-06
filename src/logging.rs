@@ -15,7 +15,7 @@ impl<I: IntoIterator + Clone> ::slog::Value for IterValue<I>
         &self,
         _record: &::slog::Record,
         key: ::slog::Key,
-        serializer: &mut ::slog::Serializer
+        serializer: &mut dyn (::slog::Serializer)
     ) -> ::slog::Result {
         serializer.emit_serde(key, self)
     }
@@ -23,17 +23,17 @@ impl<I: IntoIterator + Clone> ::slog::Value for IterValue<I>
 impl<I: IntoIterator + Clone> ::slog::SerdeValue for IterValue<I>
     where I::Item: Serialize + Debug {
     #[inline]
-    fn serialize_fallback(&self, key: ::slog::Key, serializer: &mut ::slog::Serializer) -> ::slog::Result {
+    fn serialize_fallback(&self, key: ::slog::Key, serializer: &mut dyn (::slog::Serializer)) -> ::slog::Result {
         serializer.emit_arguments(key, &format_args!("{:?}", self))
     }
 
     #[inline]
-    fn as_serde(&self) -> &::erased_serde::Serialize {
+    fn as_serde(&self) -> &dyn ::erased_serde::Serialize {
         self
     }
 
     #[inline]
-    fn to_sendable(&self) -> Box<::slog::SerdeValue + Send> {
+    fn to_sendable(&self) -> Box<dyn ::slog::SerdeValue + Send> {
         box SerializeValue(::serde_json::to_value(self).unwrap())
     }
 }
@@ -61,21 +61,21 @@ pub struct SerializeValue<T: Debug + Serialize>(pub T);
 
 impl<T: Debug + Serialize> ::slog::Value for SerializeValue<T> {
     #[inline]
-    fn serialize(&self, _record: &::slog::Record, key: ::slog::Key, serializer: &mut ::slog::Serializer) -> ::slog::Result {
+    fn serialize(&self, _record: &::slog::Record, key: ::slog::Key, serializer: &mut dyn (::slog::Serializer)) -> ::slog::Result {
         serializer.emit_serde(key, self)
     }
 }
 impl<T: Debug + Serialize> ::slog::SerdeValue for SerializeValue<T> {
-    fn serialize_fallback(&self, key: ::slog::Key, serializer: &mut ::slog::Serializer) -> ::slog::Result {
+    fn serialize_fallback(&self, key: ::slog::Key, serializer: &mut dyn (::slog::Serializer)) -> ::slog::Result {
         serializer.emit_str(key, &format!("{:?}", self.0))
     }
 
     #[inline]
-    fn as_serde(&self) -> &::erased_serde::Serialize {
+    fn as_serde(&self) -> &dyn ::erased_serde::Serialize {
         self
     }
 
-    fn to_sendable(&self) -> Box<::slog::SerdeValue + Send + 'static> {
+    fn to_sendable(&self) -> Box<dyn ::slog::SerdeValue + Send + 'static> {
         box SerializeValue(::serde_json::to_value(&self.0).unwrap())
     }
 }
