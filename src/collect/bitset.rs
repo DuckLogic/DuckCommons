@@ -3,6 +3,7 @@ use std::ops::Index;
 use std::iter::Enumerate;
 
 use smallvec::{SmallVec, Array};
+use std::fmt::{self, Debug};
 
 /// A custom bitset that uses a `SmallVec` internally,
 /// resulting in significant space and speed gains.
@@ -191,5 +192,11 @@ impl<A: Array<Item=u64>> Index<usize> for SmallBitSet<A> {
     #[inline]
     fn index(&self, index: usize) -> &bool {
         if self.get(index) { STATIC_TRUE } else { STATIC_FALSE }
+    }
+}
+
+impl<A: Array<Item=u64>> Debug for SmallBitSet<A> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_set().entries(self.enumerate(true)).finish()
     }
 }
