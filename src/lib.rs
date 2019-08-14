@@ -161,12 +161,7 @@ pub trait OptionExt<T> {
     /// Initialize this option with the specified value,
     /// panicking if it isn't already `None`
     fn initialize(&mut self, value: T) -> &mut T;
-    #[inline]
-    fn unwrap_none(&self) {
-        self.expect_none("Expected None")
-    }
-    fn expect_none(&self, msg: &str);
-    unsafe fn unchecked_unwrap(self) -> T;
+     unsafe fn unchecked_unwrap(self) -> T;
     unsafe fn unchecked_unwrap_none(self);
 }
 impl<T> OptionExt<T> for Option<T> {
@@ -180,13 +175,6 @@ impl<T> OptionExt<T> for Option<T> {
                 "Unable to initialize {:?} with {:?}",
                 maybe_debug!(self), maybe_debug!(value)
             )
-        }
-    }
-
-    #[inline]
-    fn expect_none(&self, msg: &str) {
-        if let Some(ref value) = *self {
-            panic!("{}: {:?}", msg, maybe_debug!(value))
         }
     }
 
