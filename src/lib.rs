@@ -10,7 +10,6 @@
     type_ascription, // Type ascription is awesome
     unboxed_closures, // Apparently you can only manually implement closures on nightly -_-
     fn_traits, // I guess `FnMut` is also an unstable trait?
-    never_type, // The never type is awesome
     pattern, // We use the pattern API for parsing
     drain_filter, // Better alternative to retain
     exhaustive_patterns, // Needed to match exhaustively on the never type

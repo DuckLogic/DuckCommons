@@ -46,9 +46,8 @@ memchr = "^1.0.1"
 # Bitset library needed for petgraph
 fixedbitset = "^0.1.8"
 # Compile time maps
-# TODO: Use upstream version of PHF
-phf = { git = "https://github.com/Techcable/rust-phf.git", branch = "ducklogic" }
-phf_macros = { git = "https://github.com/Techcable/rust-phf.git", branch = "ducklogic" }
+phf = "0.8.0"
+phf_macros = "0.8.0"
 # Better concurrency primitives
 parking_lot = { version = "^0.6.3", features = ["nightly"] }
 # Generic traits for numbers
@@ -77,12 +76,4 @@ features = ["serde-1",]
 path = "derive"
 
 [workspace]
-
-
-[patch.crates-io]
-# TODO: Use upstream version of phf
-phf = { git = "https://github.com/Techcable/rust-phf.git", branch = "ducklogic" }
-phf_macros = { git = "https://github.com/Techcable/rust-phf.git", branch = "ducklogic" }
-phf_shared = { git = "https://github.com/Techcable/rust-phf.git", branch = "ducklogic" }
-phf_generator = { git = "https://github.com/Techcable/rust-phf.git", branch = "ducklogic" }
 
