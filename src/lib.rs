@@ -17,6 +17,7 @@
     exact_size_is_empty, // Why isn't this already stable?
     ptr_offset_from, // Helps make pointer logic cleaner
     associated_type_defaults, // Avoids boilerplate in SimpleParseErrorKind
+    never_type, // The never type is awesome
 )]
 #![cfg_attr(feature="cargo-clippy", allow(
     type_complexity, // Sometimes I just like complex types ^_^
