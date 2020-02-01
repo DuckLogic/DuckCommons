@@ -218,6 +218,11 @@ pub fn compute_updated_locations<T, I, F>(target: &[T], mut insertions: I, mut u
     while original_len != shifted_start {
         let insertion_index = insertions.next()
             .expect("Expected more insertions!");
+        assert!(
+            insertion_index <= original_len,
+            "Invalid insertion index {} > len {}",
+            insertion_index, original_len
+        );
         let moved_memory = original_len - insertion_index;
         if moved_memory > 0 {
             assert!(shifted_start >= moved_memory && insertion_index <= shifted_start - moved_memory);
