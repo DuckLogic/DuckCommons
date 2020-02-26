@@ -1,7 +1,7 @@
 use std::mem;
 use std::cmp::Ordering;
 use std::hash::BuildHasherDefault;
-use std::alloc::{Layout, Global, Alloc, handle_alloc_error};
+use std::alloc::{Layout, Global, AllocRef, handle_alloc_error};
 use std::ptr::NonNull;
 use std::fmt::Debug;
 
