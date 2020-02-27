@@ -16,6 +16,7 @@ pub mod vecmap;
 pub mod vecset;
 pub mod bulk;
 pub mod compare;
+pub mod permutations;
 
 pub use self::compare::SliceCompare;
 pub use self::bitset::SmallBitSet;
