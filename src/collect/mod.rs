@@ -264,7 +264,7 @@ pub fn bulk_unwrap<T>(target: Vec<Option<T>>) -> Vec<T> {
         let original_start_ptr = target.as_ptr();
         let updated_start_ptr = target.as_ptr() as *mut T;
         let len = target.len();
-        let capacity = target.capacity();
+        let desired_capacity = target.capacity();
         unsafe {
             let original_end_ptr = original_start_ptr.add(len);
             let mut original_ptr = original_start_ptr;
@@ -286,20 +286,24 @@ pub fn bulk_unwrap<T>(target: Vec<Option<T>>) -> Vec<T> {
                 updated_ptr = updated_ptr.add(1);
             }
             // Realloc the memory with the new size of `T`
-            debug_assert!(capacity > 0);
+            debug_assert!(desired_capacity > 0);
             let layout = Layout::from_size_align(
-                capacity * mem::size_of::<Option<T>>(),
+                desired_capacity * mem::size_of::<Option<T>>(),
                 mem::align_of::<Option<T>>()
             ).unwrap();
-            let realloc_ptr = Global.realloc(
+            let (realloc_ptr, new_capacity_bytes) = Global.realloc(
                 NonNull::new_unchecked(original_start_ptr as *mut _),
                 layout,
-                capacity * mem::size_of::<T>()
+                desired_capacity * mem::size_of::<T>()
             ).unwrap_or_else(|_| handle_alloc_error(layout));
-            Vec::from_raw_parts(realloc_ptr.as_ptr() as *mut T, len, capacity)
+            assert_eq!(new_capacity_bytes % mem::size_of::<T>(), 0);
+            Vec::from_raw_parts(
+                realloc_ptr.as_ptr() as *mut T, len,
+                new_capacity_bytes / mem::size_of::<T>()
+            )
         }
     } else {
-        // Do the niave version
+        // Do the naive version
         target.into_iter().enumerate()
             .map(|(index, opt)| bulk_unwrap_element(index, opt))
             .collect()
