@@ -18,11 +18,8 @@
     ptr_offset_from, // Helps make pointer logic cleaner
     associated_type_defaults, // Avoids boilerplate in SimpleParseErrorKind
     never_type, // The never type is awesome
+    negative_impls, // Negative !Sync always worked before......
 )]
-#![cfg_attr(feature="cargo-clippy", allow(
-    type_complexity, // Sometimes I just like complex types ^_^
-    cast_lossless, // I disagree with this lint
-))]
 #![deny(
     bare_trait_objects, // These are unclear legacy baggage
 )]
@@ -161,7 +158,18 @@ pub trait OptionExt<T> {
     /// Initialize this option with the specified value,
     /// panicking if it isn't already `None`
     fn initialize(&mut self, value: T) -> &mut T;
-     unsafe fn unchecked_unwrap(self) -> T;
+    /// Unwrap the option, unsafely assuming its value is present.
+    ///
+    /// ## Safety
+    /// Undefined behavior if this value is in fact `None`
+    unsafe fn unchecked_unwrap(self) -> T;
+    /// Unsafely assume this option doesn't have a value present.
+    ///
+    /// Although this doesn't return a value,
+    /// it avoids a branch and running a destructor.
+    ///
+    /// ## Safety
+    /// Undefined behavior if this value is in fact `Some`
     unsafe fn unchecked_unwrap_none(self);
 }
 impl<T> OptionExt<T> for Option<T> {

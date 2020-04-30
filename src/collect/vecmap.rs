@@ -402,7 +402,7 @@ impl<'a: 'b, 'b, K: Ord + 'a, A: 'a, B: 'b> Iterator for Union<'a, 'b, K, A, B> 
                 Some((other_key, second)) => {
                     debug_assert!(*other_key < *key);
                     self.first = old_state;
-                    return Some((other_key, Right(second)))
+                    Some((other_key, Right(second)))
                 },
                 None => Some((key, Left(first)))
             }
@@ -429,7 +429,7 @@ impl<'a: 'b, 'b, K: Ord + 'a, A: 'a, B: 'b> iter::DoubleEndedIterator for Union<
                 Some((other_key, second)) => {
                     debug_assert!(*other_key > *key);
                     self.first = old_state;
-                    return Some((other_key, Right(second)))
+                    Some((other_key, Right(second)))
                 },
                 None => Some((key, Left(first)))
             }

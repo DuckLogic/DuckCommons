@@ -16,6 +16,9 @@ pub fn try_split_at(target: &str, index: usize) -> Option<(&str, &str)> {
 
 /// Perform an unchecked version of `str::split_at`, ignoring bounds and UTF8 checks.
 /// However, checking is still performed in debug mode, although it shouldn't be relied on.
+///
+/// ## Safety
+/// Undefined behavior if index is out of bounds
 #[inline(always)]
 pub unsafe fn unchecked_split_at(target: &str, index: usize) -> (&str, &str) {
     debug_assert!(target.is_char_boundary(index));

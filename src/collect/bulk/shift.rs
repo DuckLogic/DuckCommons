@@ -87,9 +87,8 @@ impl<'a, T: 'a> BulkShifter<'a, T> {
         );
         unsafe {
             ptr::copy(
-                self.target.as_mut_ptr().offset(start as isize),
-                self.target.as_mut_ptr().offset(
-                    (self.shifted_start - moved_memory) as isize),
+                self.target.as_mut_ptr().add(start),
+                self.target.as_mut_ptr().add(self.shifted_start - moved_memory),
                 moved_memory
             );
             self.shifted_start -= moved_memory;
@@ -103,7 +102,7 @@ impl<'a, T: 'a> BulkShifter<'a, T> {
         unsafe {
             self.shifted_start -= 1;
             ptr::write(
-                self.target.as_mut_ptr().offset(self.shifted_start as isize),
+                self.target.as_mut_ptr().add(self.shifted_start),
                 value
             );
         }
@@ -124,7 +123,7 @@ impl<'a, T: 'a> BulkShifter<'a, T> {
     pub fn shifted_elements(&self) -> &[T] {
         unsafe {
             slice::from_raw_parts(
-                self.target.as_ptr().offset(self.shifted_start as isize),
+                self.target.as_ptr().add(self.shifted_start),
                 self.shifted_len()
             )
         }

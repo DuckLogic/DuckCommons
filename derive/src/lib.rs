@@ -147,7 +147,7 @@ fn impl_step(ast: &DeriveInput) -> TokenStream {
     let name = &ast.ident;
     if let Data::Struct(DataStruct { fields: ref fields @ Fields::Unnamed(_), .. }) = ast.data {
         assert_eq!(fields.iter().len(), 1, "Unable to derive Step for {}, must have only one field", name);
-        match BasicType::determine(&fields.iter().nth(0).unwrap().ty) {
+        match BasicType::determine(&fields.iter().next().unwrap().ty) {
             Some(BasicType::MachineInteger(_)) | Some(BasicType::Integer(_)) => {
                 quote! {
                     impl ::std::iter::Step for #name {
@@ -190,7 +190,7 @@ fn impl_step(ast: &DeriveInput) -> TokenStream {
             _ => {
                 panic!(
                     "Unable to derive Step for {}, invalid inner type {:?}",
-                    name, &fields.iter().nth(0).unwrap().ty
+                    name, &fields.iter().next().unwrap().ty
                 )
             }
         }
@@ -468,7 +468,7 @@ fn simple_parse_error_impl(ast: &DeriveInput) -> TokenStream {
 
 fn crate_name(ast: &DeriveInput) -> TokenStream {
     let inside_crate = ast.attrs.iter().any(|a| match a.interpret_meta() {
-        Some(Meta::Word(ref word)) if word.to_string() == "inside_crate" => true,
+        Some(Meta::Word(ref word)) if *word == "inside_crate" => true,
         _ => false
     });
     if inside_crate {

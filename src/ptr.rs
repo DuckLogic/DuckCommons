@@ -14,8 +14,10 @@ pub trait PointerExt<T>: Sized + Copy {
     fn byte_offset(self, other: Self) -> isize {
         (other.ptr() as isize).wrapping_sub(self.ptr() as isize)
     }
-    /// Compute the distance from this pointer to the other pointer,
-    /// resulting in undefined behavior if this pointer is greater than the other pointer,
+    /// Compute the distance from this pointer to the other pointer.
+    ///
+    /// ## Safety
+    /// Undefined behavior if this pointer is greater than the other pointer,
     /// or if the type is a zero-sized type.
     #[inline]
     unsafe fn unchecked_distance_to(self, other: Self) -> usize {
@@ -26,6 +28,10 @@ pub trait PointerExt<T>: Sized + Copy {
             mem::size_of::<T>()
         )
     }
+    /// Compute the signed offset from this pointer to the other pointer
+    ///
+    /// ## Safety
+    /// Undefined behavior if this is zero-sized type.
     #[inline]
     unsafe fn unchecked_offset_to(self, other: Self) -> isize {
         debug_assert_ne!(mem::size_of::<T>(), 0);

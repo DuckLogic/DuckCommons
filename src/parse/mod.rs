@@ -992,7 +992,7 @@ impl Display for SimpleLocation {
 impl Add for SimpleLocation {
     type Output = SimpleLocation;
 
-    #[cfg_attr(feature = "cargo-clippy", allow(suspicious_arithmetic_impl))]
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn add(self, rhs: SimpleLocation) -> Self::Output {
         SimpleLocation {
             multiline: self.multiline | rhs.multiline,

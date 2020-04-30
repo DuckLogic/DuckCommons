@@ -7,7 +7,8 @@ pub fn for_permutation_indexes<F: FnMut(&[usize])>(n: usize, r: usize, mut func:
     let mut indexes = (0..n).collect_vec();
     let mut cycles = ((n - r + 1)..=n).rev().collect_vec();
     func(&indexes[..r]);
-    'permLoop: while n > 0 {
+    if n == 0 { return }
+    'permLoop: loop {
         for i in (0..r).rev() {
             cycles[i] -= 1;
             if cycles[i] == 0 {
@@ -77,7 +78,7 @@ impl Iterator for IterPermutationIndexes {
                 break
             }
         }
-        return None
+        None
     }
 }
 

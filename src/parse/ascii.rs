@@ -24,7 +24,7 @@ pub fn try_take_ascii(text: &str) -> Option<(u8, &str)> {
             // Since the first char was ASCII, the next one must be a char boundary
             debug_assert!(text.is_char_boundary(1));
             let remaining = unsafe { text.get_unchecked(1..text.len()) };
-            return Some((byte, remaining))
+            Some((byte, remaining))
         } else {
             None
         }

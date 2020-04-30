@@ -24,6 +24,7 @@ pub use self::bitset::SmallBitSet;
 pub use two_sided_vec::TwoSidedVec;
 pub use self::vecmap::VecMap;
 pub use self::vecset::VecSet;
+use failure::_core::alloc::{ReallocPlacement, AllocInit};
 
 pub type SeaHashBuildHasher = BuildHasherDefault<SeaHasher>;
 pub type SeaHashOrderMap<K, V> = OrderMap<K, V, SeaHashBuildHasher>;
@@ -103,19 +104,21 @@ pub fn is_unique_by_key<'a, T, U, F>(target: &'a [T], mut func: F) -> bool
     target.iter().all(|value| set.insert(func(value)))
 }
 
+pub type Duplicate<'a, T> = ((usize, &'a T), (usize, &'a T));
+
 #[inline]
-pub fn find_duplicates<T: PartialEq, F>(target: &[T]) -> Option<((usize, &T), (usize, &T))> {
+pub fn find_duplicates<T: PartialEq, F>(target: &[T]) -> Option<Duplicate<'_, T>> {
     find_duplicates_by(target, |first, second| first == second)
 }
 
 #[inline]
-pub fn find_duplicates_by_key<T, B, F>(target: &[T], mut func: F) -> Option<((usize, &T), (usize, &T))>
+pub fn find_duplicates_by_key<T, B, F>(target: &[T], mut func: F) -> Option<Duplicate<'_, T>>
     where B: PartialEq, F: FnMut(&T) -> B {
     find_duplicates_by(target, |first, second| func(first) == func(second))
 }
 
 #[inline]
-pub fn find_duplicates_by<T, F>(target: &[T], mut same_bucket: F) -> Option<((usize, &T), (usize, &T))>
+pub fn find_duplicates_by<T, F>(target: &[T], mut same_bucket: F) -> Option<Duplicate<'_, T>>
     where F: FnMut(&T, &T) -> bool {
     for ((prev_index, prev), (index, element)) in target.iter().enumerate().tuple_windows() {
         if same_bucket(prev, element) {
@@ -207,7 +210,7 @@ impl<I: IntoIterator> FindSingle for I {
     fn single(self) -> Option<I::Item> {
         let mut iter = self.into_iter();
         if let Some(first) = iter.next() {
-            if let Some(_) = iter.next() {
+            if iter.next().is_some() {
                 None
             } else {
                 Some(first)
@@ -291,15 +294,17 @@ pub fn bulk_unwrap<T>(target: Vec<Option<T>>) -> Vec<T> {
                 desired_capacity * mem::size_of::<Option<T>>(),
                 mem::align_of::<Option<T>>()
             ).unwrap();
-            let (realloc_ptr, new_capacity_bytes) = Global.realloc(
+            let realloc = Global.grow(
                 NonNull::new_unchecked(original_start_ptr as *mut _),
                 layout,
-                desired_capacity * mem::size_of::<T>()
+                desired_capacity * mem::size_of::<T>(),
+                ReallocPlacement::MayMove,
+                AllocInit::Uninitialized
             ).unwrap_or_else(|_| handle_alloc_error(layout));
-            assert_eq!(new_capacity_bytes % mem::size_of::<T>(), 0);
+            assert_eq!(realloc.size % mem::size_of::<T>(), 0);
             Vec::from_raw_parts(
-                realloc_ptr.as_ptr() as *mut T, len,
-                new_capacity_bytes / mem::size_of::<T>()
+                realloc.ptr.as_ptr() as *mut T, len,
+                realloc.size / mem::size_of::<T>()
             )
         }
     } else {

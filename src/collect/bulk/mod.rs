@@ -59,7 +59,7 @@ impl<T> InsertionSet<T> {
     pub fn desired_insertions(&self) -> usize {
         self.insertions.len()
     }
-    pub fn list_updated_locations(&mut self, target: &Vec<T>) -> Vec<(OriginalLocation, usize)> {
+    pub fn list_updated_locations(&mut self, target: &[T]) -> Vec<(OriginalLocation, usize)> {
         let mut result = Vec::with_capacity(target.len() + self.desired_insertions());
         self.compute_updated_locations(
             target,
@@ -69,7 +69,7 @@ impl<T> InsertionSet<T> {
         result
     }
     /// Computes all the updated locations
-    pub fn compute_updated_locations<F>(&mut self, target: &Vec<T>, mut func: F)
+    pub fn compute_updated_locations<F>(&mut self, target: &[T], mut func: F)
         where F: FnMut(OriginalLocation, usize) {
         self.sort();
         compute_updated_locations(

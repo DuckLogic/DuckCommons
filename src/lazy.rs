@@ -259,6 +259,7 @@ impl<T> Lazy<T> {
     /// Unsafely set the underlying value of this Lazy,
     /// ignoring an existing value and returning a reference to the new one.
     ///
+    /// ## Safety
     /// Undefined behavior will occur if the existing value is in use,
     /// and the existing value won't be dropped or read.
     #[inline]
