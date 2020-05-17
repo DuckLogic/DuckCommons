@@ -5,6 +5,7 @@ authors = ["Techcable <Techcable@techcable.net>"]
 description = "Various utilities needed for DuckLogic"
 license = "All Rights Reserved"
 edition = "2018"
+# This is deprecated
 publish = false
 
 [dependencies]
